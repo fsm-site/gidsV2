@@ -1,0 +1,12 @@
+<!-- Copyright (c) 2026 GIDS IPHONE REPAIR. All rights reserved. -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 192">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#84d0ff"/>
+      <stop offset="1" stop-color="#1769a8"/>
+    </linearGradient>
+  </defs>
+  <rect width="192" height="192" rx="42" fill="#07111f"/>
+  <rect x="24" y="24" width="144" height="144" rx="32" fill="url(#g)"/>
+  <path d="M54 69h84v18H72v18h54v18H72v18H54z" fill="#fff"/>
+</svg>
