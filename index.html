@@ -207,6 +207,8 @@
   .field input:focus, .field select:focus{ outline:none; border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-pale); }
   .login-card .field label, .login-card .remember-choice{ color:#e7f3ff; }
   .login-error{ color:var(--warn); font-size:12px; font-weight:600; margin-top:4px; min-height:16px; }
+  .role-choice{ display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-top:22px; }
+  .role-choice .pill-btn{ min-height:52px; }
 
   /* ---------- Subtabs (admin) ---------- */
   .subtabs{ display:flex; gap:6px; margin-bottom:18px; }
@@ -420,6 +422,7 @@
     .modal.job-modal{ max-height:calc(100vh - 12px); }
     .modal-actions{ position:sticky; bottom:0; z-index:2; padding:12px 0 4px; margin:0; background:linear-gradient(180deg,rgba(12,27,47,.72),var(--panel) 35%); }
     .modal-actions .pill-btn{ min-height:42px; }
+    .role-choice{ grid-template-columns:1fr; }
   }
   .analytics-grid{ display:grid; grid-template-columns:repeat(4,1fr); gap:12px; margin-bottom:22px; }
   .analytics-card{ padding:14px 16px; border:1px solid var(--line); border-radius:12px; background:var(--panel-2); }
@@ -665,6 +668,21 @@
           </div>
           <div id="portal-result" class="portal-result">
             <div class="muted-box">Enter the number printed on your job slip or receipt.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ================= ROLE CHOOSER ================= -->
+      <div class="view" id="view-role-select">
+        <div class="login-wrap">
+          <div class="login-card">
+            <div class="logo-badge"></div>
+            <h2>SIGNING IN AS?</h2>
+            <p class="hint">Choose the access level for this session</p>
+            <div class="role-choice">
+              <button class="pill-btn primary" type="button" onclick="chooseRole('admin')">Admin</button>
+              <button class="pill-btn ghost" type="button" onclick="chooseRole('staff')">Staff</button>
+            </div>
           </div>
         </div>
       </div>
@@ -1295,15 +1313,17 @@ async function saveState(){
 async function init(){
   document.getElementById("today-label").textContent = getToday().toLocaleDateString(undefined,{weekday:'short', year:'numeric', month:'short', day:'numeric'});
   await loadState();
-  const rememberedRole = restoreRememberedSession();
   const repBranch = document.getElementById("rep-branch");
   if(repBranch) repBranch.innerHTML = `<option value="__all__">All branches</option>` + BRANCHES.map(b=>`<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join("");
   bindNav();
   document.getElementById("staff-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
-  switchView(rememberedRole==="admin" ? "admin" : "employee");
+  session.isAdmin = false;
+  session.staffUnlocked = false;
+  session.pendingView = null;
+  updateNavForRole(null);
+  switchView("role-select");
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
-  hideSplash();
   // Sync with Firebase in the background so the login screen never has to wait on it.
   syncFromFirebase();
 }
@@ -1369,6 +1389,30 @@ function bindNav(){
   });
 }
 
+function updateNavForRole(role){
+  document.querySelectorAll(".nav-item").forEach(nav => {
+    const view = nav.dataset.view;
+    const visible = role === "admin"
+      ? view !== "staff-gate"
+      : role === "staff"
+        ? ["employee", "inventory-public", "customer-status"].includes(view)
+        : false;
+    nav.style.display = visible ? "flex" : "none";
+  });
+}
+
+function chooseRole(role){
+  if(role === "admin"){
+    session.pendingView = null;
+    updateNavForRole("admin");
+    switchView("admin");
+    return;
+  }
+  session.pendingView = "employee";
+  updateNavForRole("staff");
+  switchView("staff-gate");
+}
+
 function switchView(key){
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
   const navEl = document.querySelector(`.nav-item[data-view="${key}"]`);
@@ -1378,6 +1422,15 @@ function switchView(key){
   const titleEl = document.getElementById("topbar-title");
   const subEl = document.getElementById("topbar-sub");
   const rightEl = document.getElementById("topbar-right");
+
+  if(key==="role-select"){
+    document.getElementById("view-role-select").classList.add("active");
+    titleEl.innerHTML = `GIDS AYPHONE TECH`;
+    subEl.innerHTML = "Choose your access level to continue";
+    rightEl.innerHTML = "";
+    renderAll();
+    return;
+  }
 
   if((key==="employee" || key==="inventory-public") && !session.staffUnlocked && !session.isAdmin){
     session.pendingView = key;
@@ -1394,18 +1447,19 @@ function switchView(key){
     titleEl.innerHTML = `GIDS AYPHONE TECH — <span class="hi">DASHBOARD</span>`;
     subEl.innerHTML = `Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
-      `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>`;
+      `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
+      `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     bindBranchSelector("employee");
   } else if(key==="inventory-public"){
     document.getElementById("view-inventory-public").classList.add("active");
     titleEl.innerHTML = `<span class="hi">INVENTORY</span>`;
     subEl.innerHTML = `Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
-    rightEl.innerHTML = "";
+    rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
   } else if(key==="customer-status"){
     document.getElementById("view-customer-status").classList.add("active");
     titleEl.innerHTML = `REPAIR <span class="hi">STATUS</span>`;
     subEl.innerHTML = "Look up a repair and share its digital receipt";
-    rightEl.innerHTML = "";
+    rightEl.innerHTML = session.staffUnlocked || session.isAdmin ? `<button class="pill-btn danger" onclick="logout()">Sign out</button>` : "";
   } else if(key==="staff-gate"){
     session.pendingView = "employee";
     document.getElementById("view-staff-gate").classList.add("active");
@@ -1413,6 +1467,10 @@ function switchView(key){
     subEl.innerHTML = "Sign in to open the staff dashboard";
     rightEl.innerHTML = "";
   } else if(key==="admin"){
+    if(session.staffUnlocked && !session.isAdmin){
+      switchView("employee");
+      return;
+    }
     if(session.isAdmin){
       document.getElementById("view-admin-panel").classList.add("active");
       titleEl.innerHTML = `ADMIN <span class="hi">PANEL</span>`;
@@ -1459,6 +1517,7 @@ function attemptLogin(){
     session.adminUsername = account.username;
     session.isAdmin = true;
     session.staffUnlocked = true;
+    updateNavForRole("admin");
     if(document.getElementById("remember-admin").checked) saveRememberedSession("admin");
     err.textContent = "";
     document.getElementById("login-user").value="";
@@ -1474,6 +1533,8 @@ function attemptStaffLogin(){
   const err = document.getElementById("staff-error");
   if(p === state.staffPassword){
     session.staffUnlocked = true;
+    session.isAdmin = false;
+    updateNavForRole("staff");
     if(document.getElementById("remember-staff").checked) saveRememberedSession("staff");
     err.textContent = "";
     document.getElementById("staff-pass").value = "";
@@ -1486,8 +1547,10 @@ function attemptStaffLogin(){
 function logout(){
   session.isAdmin = false;
   session.staffUnlocked = false;
+  session.pendingView = null;
   clearRememberedSession();
-  switchView("admin");
+  updateNavForRole(null);
+  switchView("role-select");
 }
 
 function openChangePasswordModal(){
