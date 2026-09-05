@@ -1327,14 +1327,9 @@ const stateDocRef = db.collection("app-data").doc("gids-tech-data");
 let authReadyResolve;
 const authReady = new Promise(res => { authReadyResolve = res; });
 firebase.auth().onAuthStateChanged(user => {
-  if(user){
-    authReadyResolve();
-  }else{
-    firebase.auth().signInAnonymously().catch(e => {
-      console.error("Anonymous sign-in failed:", e);
-      showToast("Couldn’t connect securely — check your connection");
-    });
-  }
+  // Do not create anonymous Firebase users. Authentication is now only
+  // established when a real Admin or Staff account signs in.
+  authReadyResolve(user || null);
 });
 
 let unsubscribeSnapshot = null;
@@ -1529,13 +1524,16 @@ async function loadState(){
 }
 
 async function syncFromFirebase(){
+  let authUser = null;
   try{
-    await withTimeout(authReady, 8000);
+    authUser = await withTimeout(authReady, 8000);
   }catch(e){
     console.error("Firebase auth failed:", e);
     showToast("Couldn't connect to Firebase — check your connection");
     return;
   }
+  // No anonymous access: wait until a real Firebase account signs in.
+  if(!authUser || authUser.isAnonymous) return;
   if(unsubscribeSnapshot) unsubscribeSnapshot();
   unsubscribeSnapshot = stateDocRef.onSnapshot(snap=>{
     if(suppressNextSnapshot){ suppressNextSnapshot = false; return; }
@@ -1997,6 +1995,23 @@ function bindBranchSelector(who){
 }
 
 /* ======================= LOGIN ======================= */
+async function loadCloudStateAfterLogin(){
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous) return false;
+  try{
+    const snap = await withTimeout(stateDocRef.get(), 10000);
+    if(snap.exists){
+      state = snap.data();
+      finishStateMigration();
+      writeLocal();
+      return true;
+    }
+    return false;
+  }catch(e){
+    console.error("Could not load Firebase state after login:", e);
+    return false;
+  }
+}
 async function attemptLogin(){
   const email = document.getElementById("login-user").value.trim();
   const password = document.getElementById("login-pass").value;
@@ -2014,6 +2029,7 @@ async function attemptLogin(){
     await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
+    await loadCloudStateAfterLogin();
 
     // A Firebase account is NOT automatically an administrator.
     // If this email is assigned as staff, it must use Staff Login instead.
@@ -2087,20 +2103,21 @@ async function attemptStaffLogin(){
     return;
   }
 
-  const account = (state.staffAccounts || []).find(item=>
-    (item.email || "").toLowerCase() === email.toLowerCase()
-  );
-
-  if(!account){
-    err.textContent = "This staff email has not been assigned in the app yet.";
-    return;
-  }
-
   try{
     const remember = document.getElementById("remember-staff").checked;
     await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, p);
     const user = userCredential.user;
+    await loadCloudStateAfterLogin();
+
+    const account = (state.staffAccounts || []).find(item=>
+      (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
+    );
+    if(!account){
+      await firebase.auth().signOut();
+      err.textContent = "This staff email has not been assigned in the app yet.";
+      return;
+    }
 
     session.staffUnlocked = true;
     session.isAdmin = false;
