@@ -1279,10 +1279,6 @@
 /* ======================= STATE ======================= */
 const BRANCHES = ["San Antonio","Bataan","Angeles"];
 const TECHS = ["Tristan","Jaja","Peypey","Kakai"];
-const ADMIN_ACCOUNTS = [
-  {username:"adminjaja", password:"162022gids"},
-  {username:"admintristan", password:"162022gids"}
-];
 const SERVICE_TYPES = ["Labor","Parts & Accessories"];
 const PAYMENT_MODES = ["Cash","E-Wallet"];
 const JOB_STATUSES = ["New","Diagnosing","Awaiting parts","In repair","Ready for pickup","Completed","Cancelled"];
@@ -1428,8 +1424,8 @@ function currentUserName(){
 
 function defaultState(){
   return {
-    adminAccounts: ADMIN_ACCOUNTS,
-    admin:{ username:"adminjaja", password:"162022gids" },
+    adminAccounts: [],
+    admin:{ uid:"", email:"", username:"" },
     transactions:[],
     nextSeq:1,
     inventory:[
@@ -1546,24 +1542,24 @@ async function syncFromFirebase(){
 function finishStateMigration(){
   let migrated = false;
 
-  // Preserve the existing production admin account. Only add the new multi-account
-  // structure when it does not already exist; never overwrite an existing password.
+  // Admin identity is now handled by Firebase Authentication. Keep only
+  // non-secret admin profile/mapping data in Firestore; never store passwords.
   if(!Array.isArray(state.adminAccounts)){
-    const existingAdmin = state.admin && state.admin.username ? state.admin : ADMIN_ACCOUNTS[0];
-    state.adminAccounts = [{...existingAdmin}];
+    const existingAdmin = state.admin && state.admin.username ? state.admin : null;
+    state.adminAccounts = existingAdmin ? [{username:existingAdmin.username, email:existingAdmin.email || ""}] : [];
     migrated = true;
+  } else {
+    state.adminAccounts = state.adminAccounts.map(account=>({
+      username: account.username || account.email || "Admin",
+      email: account.email || ""
+    }));
   }
-  // Ensure the current admin accounts (adminjaja / admintristan) always exist,
-  // without touching or removing any accounts already saved.
-  ADMIN_ACCOUNTS.forEach(acc=>{
-    if(!state.adminAccounts.some(a=>a.username===acc.username)){
-      state.adminAccounts.push({...acc});
+  if(state.admin && typeof state.admin === "object"){
+    const cleanAdmin = {uid: state.admin.uid || "", email: state.admin.email || "", username: state.admin.username || ""};
+    if(JSON.stringify(cleanAdmin) !== JSON.stringify(state.admin)){
+      state.admin = cleanAdmin;
       migrated = true;
     }
-  });
-  if(!state.admin || !state.admin.username){
-    state.admin = {...state.adminAccounts[0]};
-    migrated = true;
   }
   if(Object.prototype.hasOwnProperty.call(state, "staffPassword")){
     delete state.staffPassword;
@@ -2101,34 +2097,36 @@ function logout(){
 }
 
 function openChangePasswordModal(){
+  const user = firebase.auth().currentUser;
+  if(!session.isAdmin || !user || !user.email){
+    showToast("Please sign in as an admin first");
+    return;
+  }
   openOverlay(`
-    <h3>Change password</h3>
-    <div class="sub">Update the admin login password. This applies immediately to every device.</div>
-    <div class="field"><label>Current password</label><input id="pw-current" type="password" autocomplete="off"></div>
-    <div class="field"><label>New password</label><input id="pw-new" type="password" autocomplete="off"></div>
-    <div class="field"><label>Confirm new password</label><input id="pw-confirm" type="password" autocomplete="off"></div>
+    <h3>Reset admin password</h3>
+    <div class="sub">Firebase manages the admin password. We will send a password-reset email to <b>${escapeHTML(user.email)}</b>.</div>
     <div class="login-error" id="pw-error"></div>
     <div class="modal-actions">
       <button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button>
-      <button class="pill-btn primary" onclick="savePassword()">Update password</button>
+      <button class="pill-btn primary" onclick="sendAdminPasswordReset()">Send reset email</button>
     </div>
   `);
 }
-function savePassword(){
-  const current = document.getElementById("pw-current").value;
-  const next = document.getElementById("pw-new").value;
-  const confirm = document.getElementById("pw-confirm").value;
+async function sendAdminPasswordReset(){
+  const user = firebase.auth().currentUser;
   const err = document.getElementById("pw-error");
-  const account = (state.adminAccounts || [state.admin]).find(a=>a.username===session.adminUsername) || state.admin;
-  if(current !== account.password){ err.textContent = "Current password is incorrect."; return; }
-  if(next.length < 5){ err.textContent = "New password must be at least 5 characters."; return; }
-  if(next !== confirm){ err.textContent = "New password and confirmation don't match."; return; }
-  account.password = next;
-  state.admin = {...account};
-  state.adminAccounts = (state.adminAccounts || [account]).map(a=>a.username===account.username ? {...account} : a);
-  saveState();
-  closeOverlay();
-  showToast("Password updated");
+  if(!user || !user.email){
+    if(err) err.textContent = "No Firebase admin account is signed in.";
+    return;
+  }
+  try{
+    await firebase.auth().sendPasswordResetEmail(user.email);
+    closeOverlay();
+    showToast("Password reset email sent");
+  }catch(error){
+    console.error("Password reset failed:", error);
+    if(err) err.textContent = "Could not send the password reset email. Please try again.";
+  }
 }
 function openAddTechnicianModal(){
   openOverlay(`
@@ -2293,28 +2291,35 @@ function saveTechnicianName(oldName){
 function openAdminAccountModal(username=""){
   if(!session.isAdmin) return;
   const editing = username ? state.adminAccounts.find(account=>account.username===username) : null;
-  openOverlay(`<h3>${editing ? "Edit admin access" : "Add admin access"}</h3><div class="sub">Admin credentials are unique to each administrator.</div>
-    <div class="field"><label>Username</label><input id="admin-account-username" value="${editing ? escapeHTML(editing.username) : ""}" autocomplete="off"></div>
-    <div class="field"><label>Password</label><input id="admin-account-password" type="password" value="${editing ? escapeHTML(editing.password) : ""}" autocomplete="new-password"></div>
+  openOverlay(`<h3>${editing ? "Edit admin profile" : "Add admin profile"}</h3><div class="sub">Admin passwords are managed by Firebase Authentication and are never stored in this app.</div>
+    <div class="field"><label>Display name</label><input id="admin-account-username" value="${editing ? escapeHTML(editing.username) : ""}" autocomplete="off" placeholder="e.g. Jaja"></div>
+    <div class="field"><label>Firebase email</label><input id="admin-account-email" type="email" value="${editing ? escapeHTML(editing.email || "") : ""}" autocomplete="off" placeholder="admin@example.com"></div>
     <div class="login-error" id="admin-account-error"></div>
-    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminAccount('${editing ? escapeHTML(editing.username) : ""}')">Save access</button></div>`);
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminAccount('${editing ? escapeHTML(editing.username) : ""}')">Save profile</button></div>`);
 }
 
 function saveAdminAccount(oldUsername){
+  if(!session.isAdmin) return;
   const username = document.getElementById("admin-account-username").value.trim();
-  const password = document.getElementById("admin-account-password").value;
+  const email = document.getElementById("admin-account-email").value.trim().toLowerCase();
   const error = document.getElementById("admin-account-error");
-  if(!username || !password){ error.textContent = "Username and password are required."; return; }
-  if(state.adminAccounts.some(account=>account.username!==oldUsername && account.username.toLowerCase()===username.toLowerCase())){ error.textContent = "That username is already assigned."; return; }
-  if(oldUsername){ const account = state.adminAccounts.find(item=>item.username===oldUsername); if(account) Object.assign(account,{username,password}); }
-  else state.adminAccounts.push({username,password});
+  if(!username || !email){ error.textContent = "Display name and Firebase email are required."; return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ error.textContent = "Enter a valid Firebase email."; return; }
+  if(state.adminAccounts.some(account=>account.username!==oldUsername && account.username.toLowerCase()===username.toLowerCase())){ error.textContent = "That display name is already assigned."; return; }
+  if(state.adminAccounts.some(account=>account.username!==oldUsername && (account.email||"").toLowerCase()===email)){ error.textContent = "That Firebase email is already assigned."; return; }
+  if(oldUsername){
+    const account = state.adminAccounts.find(item=>item.username===oldUsername);
+    if(account) Object.assign(account,{username,email});
+  } else {
+    state.adminAccounts.push({username,email});
+  }
   if(oldUsername && oldUsername!==username){
     if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
     if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
   }
   if(session.adminUsername===oldUsername) session.adminUsername = username;
-  state.admin = {...(state.adminAccounts.find(account=>account.username===session.adminUsername) || state.adminAccounts[0])};
-  saveState(); closeOverlay(); renderAdminAccess(); showToast("Admin access updated");
+  state.admin = {uid:firebase.auth().currentUser?.uid || "", email:firebase.auth().currentUser?.email || email, username:session.adminUsername || username};
+  saveState(); closeOverlay(); renderAdminAccess(); showToast("Admin profile updated");
 }
 
 function deleteAdminAccount(username){
