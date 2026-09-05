@@ -531,6 +531,7 @@
         <div class="topbar-sub" id="topbar-sub">Updated <span id="today-label"></span></div>
       </div>
       <div class="topbar-right" id="topbar-right"></div>
+      <button class="pill-btn ghost" id="refresh-app-btn" type="button" onclick="hardRefreshApp()" title="Reload the app and re-sync your data">Refresh</button>
     </div>
 
     <div class="content">
@@ -1101,6 +1102,17 @@ function applyThemeToggleUI(theme){
   const label = document.getElementById("theme-toggle-label");
   if(icon) icon.innerHTML = theme==="dark" ? THEME_ICONS.light : THEME_ICONS.dark;
   if(label) label.textContent = theme==="dark" ? "Light mode" : "Dark mode";
+}
+/* Reloads the page (with a cache-busting param) so any newly-deployed code loads,
+   while state.transactions etc. still come from localStorage/Firebase as usual. */
+function hardRefreshApp(){
+  try{
+    const url = new URL(window.location.href);
+    url.searchParams.set("_r", Date.now().toString());
+    window.location.href = url.toString();
+  }catch(e){
+    window.location.reload();
+  }
 }
 function toggleTheme(){
   const current = document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light";
