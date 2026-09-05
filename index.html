@@ -1349,6 +1349,17 @@ const SESSION_KEY = "gids-remembered-session";
 const BROWSER_SESSION_KEY = "gids-active-page";
 let state = null;
 let session = { isAdmin:false, staffUnlocked:false, pendingView:null, adminUsername:null, staffUsername:null, staffTechnician:null };
+
+function enforceClientRole(){
+  const user = firebase.auth().currentUser;
+  const staff = (state?.staffAccounts || []).some(item =>
+    (item.email || "").trim().toLowerCase() === (user?.email || "").trim().toLowerCase()
+  );
+  if(user && staff){
+    session.isAdmin = false;
+    session.staffUnlocked = true;
+  }
+}
 let ui = { branch: BRANCHES[0], adminBranch: BRANCHES[0], subtab:"overview", pubSub:"parts", invSub:"parts", jobSearch:"", invSearch:"", trendRange:7, trendDate:todayStr(), attendancePeriod:"daily" };
 
 /* Force the current year to 2026 for all "today" displays and date logic,
@@ -1715,6 +1726,7 @@ async function init(){
   document.getElementById("staff-user").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
   session.pendingView = null;
+  enforceClientRole();
   updateNavForRole(session.isAdmin ? "admin" : session.staffUnlocked ? "staff" : null);
   switchView(restoredView || "role-select");
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
@@ -1973,8 +1985,17 @@ async function attemptLogin(){
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
 
-    // Transitional migration: Firebase verifies the administrator's identity.
-    // Existing Admin Access / Staff Access management remains unchanged for now.
+    // A Firebase account is NOT automatically an administrator.
+    // If this email is assigned as staff, it must use Staff Login instead.
+    const staffAccount = (state.staffAccounts || []).find(item =>
+      (item.email || "").toLowerCase() === (user.email || "").toLowerCase()
+    );
+    if(staffAccount){
+      await firebase.auth().signOut();
+      err.textContent = "This email is assigned as staff. Please use Staff Login.";
+      return;
+    }
+
     state.admin = {
       uid: user.uid,
       email: user.email
