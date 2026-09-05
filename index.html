@@ -157,7 +157,7 @@
   }
   .pill-btn:hover::after{ transform:rotate(18deg) translateX(520%); }
 
-  .content{ padding:26px 28px 60px; max-width:1180px; }
+  .content{ padding:26px 28px 60px; width:100%; max-width:none; }
   .view{ display:none; }
   .view.active{ display:block; }
 
@@ -242,6 +242,19 @@
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
 
   .public-note{ font-size:11.5px; color:var(--muted); text-align:center; margin-top:6px; }
+  .staff-intro{ display:flex; align-items:flex-end; justify-content:space-between; gap:20px; margin-bottom:22px; }
+  .staff-intro h2{ font-family:'Anton'; font-size:clamp(28px,4vw,44px); letter-spacing:.4px; color:var(--text); }
+  .staff-intro p{ max-width:620px; color:var(--muted); margin:7px 0 0; }
+  .staff-grid{ display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:18px; }
+  .staff-card{ position:relative; overflow:hidden; min-width:0; background:linear-gradient(145deg,rgba(18,42,67,.82),rgba(6,18,34,.86)); border:1px solid var(--line-strong); border-radius:var(--radius); box-shadow:var(--shadow); }
+  .staff-card img{ display:block; width:100%; aspect-ratio:4 / 5; object-fit:cover; background:linear-gradient(145deg,#163b5d,#071321); }
+  .staff-card-info{ padding:14px 16px 16px; }
+  .staff-card-name{ color:#fff; font-family:'Anton'; font-size:21px; letter-spacing:.3px; }
+  .staff-card-position{ color:var(--blue-light); font-size:11px; font-weight:700; letter-spacing:1px; text-transform:uppercase; margin-top:3px; }
+  .staff-card-actions{ display:flex; gap:7px; margin-top:13px; }
+  .staff-card-actions .pill-btn{ flex:1; }
+  .staff-empty{ grid-column:1 / -1; min-height:260px; display:grid; place-items:center; text-align:center; border:1px dashed var(--line-strong); border-radius:var(--radius); color:var(--muted); padding:30px; }
+  @media (max-width:720px){ .staff-intro{ align-items:flex-start; flex-direction:column; } }
 
   /* ---------- Hero ---------- */
   .hero{
@@ -516,6 +529,10 @@
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 4h16v16H4z"/><path d="M8 9h8M8 13h5"/><circle cx="17" cy="16" r="3"/></svg>
       <span class="label">REPAIR STATUS</span>
     </div>
+    <div class="nav-item" data-view="staff-directory">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-3.1 2.5-4.5 5.5-4.5s4.8 1.4 5.5 4.5"/><circle cx="17" cy="9" r="2.2"/><path d="M15 14.8c2.7-.2 4.5 1.1 5.3 3.7"/></svg>
+      <span class="label">MEET YOUR STAFF</span>
+    </div>
     <div class="nav-item" data-view="staff-gate">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 4v5c0 4.7-3.2 7.9-8 9-4.8-1.1-8-4.3-8-9V7l8-4z"/><path d="M9 12h6M12 9v6"/></svg>
       <span class="label">STAFF SIGN IN</span>
@@ -590,7 +607,7 @@
             <button class="pill-btn primary" onclick="openTxnModal()">+ Add job</button>
           </div>
           <table>
-            <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Fee</th><th style="text-align:right">Receipt</th></tr></thead>
+            <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Receipt</th></tr></thead>
             <tbody id="employee-txn-body"></tbody>
           </table>
         </div>
@@ -603,7 +620,7 @@
             </div>
           </div>
           <table>
-            <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Total sales</th></tr></thead>
+            <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Collected sales</th><th style="text-align:right">Commission</th><th style="text-align:right">Commission income</th></tr></thead>
             <tbody id="employee-tech-sales-body"></tbody>
           </table>
         </div>
@@ -642,7 +659,7 @@
               </div>
             </div>
             <table>
-              <thead><tr><th>Name of labor</th><th>Jobs</th><th style="text-align:right">Total sales</th></tr></thead>
+              <thead><tr><th>Name of labor</th><th>Jobs</th><th style="text-align:right">Collected sales</th></tr></thead>
               <tbody id="public-labor-body"></tbody>
             </table>
           </div>
@@ -670,6 +687,19 @@
             <div class="muted-box">Enter the number printed on your job slip or receipt.</div>
           </div>
         </div>
+      </div>
+
+      <!-- ================= STAFF DIRECTORY ================= -->
+      <div class="view" id="view-staff-directory">
+        <div class="staff-intro">
+          <div>
+            <div class="hero-eyebrow">THE PEOPLE BEHIND THE REPAIRS</div>
+            <h2>Meet Your Staff</h2>
+            <p>Get to know the technicians and team members who keep every repair moving.</p>
+          </div>
+          <div id="staff-directory-actions"></div>
+        </div>
+        <div class="staff-grid" id="staff-grid"></div>
       </div>
 
       <!-- ================= ROLE CHOOSER ================= -->
@@ -784,6 +814,10 @@
             <div class="analytics-card"><div class="stat-label">Top service</div><div class="stat-value" id="kpi-top-service" style="font-size:18px;">—</div><div class="stat-sub">By job count</div></div>
           </div>
           <div class="panel">
+            <div class="panel-head"><div><h3>Collectibles</h3><div class="desc">Outstanding balances that still need to be collected</div></div></div>
+            <div id="collectibles-list" style="padding:16px 20px;"></div>
+          </div>
+          <div class="panel">
             <div class="panel-head">
               <div><h3>Sales trend</h3><div class="desc" id="sales-trend-desc">Daily gross sales</div></div>
               <div style="display:flex; gap:6px; align-items:center; flex-wrap:wrap;">
@@ -812,7 +846,7 @@
               </div>
             </div>
             <table>
-              <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Fee</th><th style="text-align:right">Actions</th></tr></thead>
+              <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Actions</th></tr></thead>
               <tbody id="admin-txn-body"></tbody>
             </table>
           </div>
@@ -825,7 +859,7 @@
               </div>
             </div>
             <table>
-              <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Total sales</th></tr></thead>
+              <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Collected sales</th><th style="text-align:right">Commission</th><th style="text-align:right">Commission income</th></tr></thead>
               <tbody id="admin-tech-sales-body"></tbody>
             </table>
           </div>
@@ -886,7 +920,7 @@
                 </div>
               </div>
               <table>
-                <thead><tr><th>Name of labor</th><th>Jobs</th><th style="text-align:right">Total sales</th></tr></thead>
+                <thead><tr><th>Name of labor</th><th>Jobs</th><th style="text-align:right">Collected sales</th></tr></thead>
                 <tbody id="admin-labor-body"></tbody>
               </table>
             </div>
@@ -901,11 +935,11 @@
           </div>
           <div class="panel">
             <div class="panel-head"><div><h3>Customer history</h3><div class="desc">Search past jobs, invoices and receipts by name or phone.</div></div><input id="customer-search" placeholder="Search customer…" oninput="renderCustomerHistory(this.value)" style="border:1px solid var(--line-strong);border-radius:8px;padding:8px 12px;font-size:12.5px;width:190px;"></div>
-            <table><thead><tr><th>Customer</th><th>Phone</th><th>Jobs</th><th>Last visit</th><th>Total billed</th><th style="text-align:right">Action</th></tr></thead><tbody id="customer-history-body"></tbody></table>
+            <table><thead><tr><th>Customer</th><th>Phone</th><th>Jobs</th><th>Last visit</th><th>Collected</th><th style="text-align:right">Action</th></tr></thead><tbody id="customer-history-body"></tbody></table>
           </div>
           <div class="panel">
             <div class="panel-head"><div><h3>Invoices</h3><div class="desc">Every logged job has an invoice-ready number and payment state.</div></div></div>
-            <table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Status</th><th style="text-align:right">Total</th><th style="text-align:right">Action</th></tr></thead><tbody id="invoices-body"></tbody></table>
+            <table><thead><tr><th>Invoice</th><th>Customer</th><th>Date</th><th>Status</th><th style="text-align:right">Paid / total</th><th style="text-align:right">Action</th></tr></thead><tbody id="invoices-body"></tbody></table>
           </div>
         </div>
 
@@ -1063,6 +1097,15 @@ function getToday(){
 function todayStr(d=getToday()){ return d.toISOString().slice(0,10); }
 function monthStr(d=getToday()){ return d.toISOString().slice(0,7); }
 function peso(n){ return "₱" + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+function collectedAmount(t){
+  if(t.invoiceStatus === "Unpaid") return 0;
+  if(t.invoiceStatus === "Partial") return Number(t.amountPaid||0);
+  return Number(t.fee||0);
+}
+function balanceAmount(t){
+  if(t.balance != null) return Number(t.balance||0);
+  return Math.max(0, Number(t.fee||0) - collectedAmount(t));
+}
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function itemNameById(id){ const it = state.inventory.find(i=>i.id===id); return it ? it.itemName : (id||"—"); }
 function serviceLabel(t){
@@ -1105,7 +1148,9 @@ function defaultState(){
       {id:uid(), name:"PowerCell Supply", contact:"", phone:""},
       {id:uid(), name:"GlassWorks", contact:"", phone:""}
     ],
-    stockMovements:[]
+    stockMovements:[],
+    staffProfiles:[],
+    commissionRates:{}
   };
 }
 
@@ -1222,6 +1267,8 @@ function finishStateMigration(){
   }
   if(!Array.isArray(state.suppliers)){ state.suppliers = []; migrated = true; }
   if(!Array.isArray(state.stockMovements)){ state.stockMovements = []; migrated = true; }
+  if(!Array.isArray(state.staffProfiles)){ state.staffProfiles = []; migrated = true; }
+  if(!state.commissionRates || typeof state.commissionRates !== "object" || Array.isArray(state.commissionRates)){ state.commissionRates = {}; migrated = true; }
   if(!Array.isArray(state.transactions)){ state.transactions = []; migrated = true; }
   if(!Array.isArray(state.technicians)){
     state.technicians = [...TECHS];
@@ -1272,6 +1319,8 @@ function mergeStates(cloud, local){
   merged.inventory = mergeArrayByKey(cloud.inventory, local.inventory, i=>i.id);
   merged.suppliers = mergeArrayByKey(cloud.suppliers, local.suppliers, s=>s.id);
   merged.stockMovements = mergeArrayByKey(cloud.stockMovements, local.stockMovements, m=>m.id || JSON.stringify(m));
+  merged.staffProfiles = mergeArrayByKey(cloud.staffProfiles, local.staffProfiles, p=>p.id);
+  merged.commissionRates = {...(cloud.commissionRates||{}), ...(local.commissionRates||{})};
   merged.adminAccounts = mergeArrayByKey(cloud.adminAccounts, local.adminAccounts, a=>a.username);
   merged.technicians = Array.from(new Set([
     ...(Array.isArray(cloud.technicians) ? cloud.technicians : []),
@@ -1395,7 +1444,7 @@ function updateNavForRole(role){
     const visible = role === "admin"
       ? view !== "staff-gate"
       : role === "staff"
-        ? ["employee", "inventory-public", "customer-status"].includes(view)
+        ? ["employee", "inventory-public", "customer-status", "staff-directory"].includes(view)
         : false;
     nav.style.display = visible ? "flex" : "none";
   });
@@ -1460,6 +1509,17 @@ function switchView(key){
     titleEl.innerHTML = `REPAIR <span class="hi">STATUS</span>`;
     subEl.innerHTML = "Look up a repair and share its digital receipt";
     rightEl.innerHTML = session.staffUnlocked || session.isAdmin ? `<button class="pill-btn danger" onclick="logout()">Sign out</button>` : "";
+  } else if(key==="staff-directory"){
+    if(!session.staffUnlocked && !session.isAdmin){
+      session.pendingView = key;
+      switchView("staff-gate");
+      return;
+    }
+    document.getElementById("view-staff-directory").classList.add("active");
+    titleEl.innerHTML = `MEET YOUR <span class="hi">STAFF</span>`;
+    subEl.innerHTML = "The people behind every repair";
+    rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
+    renderStaffDirectory();
   } else if(key==="staff-gate"){
     session.pendingView = "employee";
     document.getElementById("view-staff-gate").classList.add("active");
@@ -1645,6 +1705,7 @@ function removeTechnician(){
 function renderAll(){
   renderEmployeeDashboard();
   renderPublicInventory();
+  renderStaffDirectory();
   renderTechSales("employee-tech-sales-body", ui.branch);
   renderLaborSummary("public-labor-body", null);
   if(session.isAdmin){
@@ -1657,6 +1718,93 @@ function renderAll(){
   }
 }
 
+function renderStaffDirectory(){
+  const grid = document.getElementById("staff-grid");
+  const actions = document.getElementById("staff-directory-actions");
+  if(!grid || !actions) return;
+  actions.innerHTML = session.isAdmin ? `<button class="pill-btn primary" onclick="openStaffProfileModal()">+ Add staff member</button>` : "";
+  const profiles = Array.isArray(state.staffProfiles) ? state.staffProfiles : [];
+  grid.innerHTML = profiles.length ? profiles.map(profile=>`
+    <article class="staff-card">
+      <img src="${profile.image}" alt="${escapeHTML(profile.name)}">
+      <div class="staff-card-info">
+        <div class="staff-card-name">${escapeHTML(profile.name)}</div>
+        <div class="staff-card-position">${escapeHTML(profile.position)}</div>
+        ${session.isAdmin ? `<div class="staff-card-actions"><button class="pill-btn small ghost" onclick="openStaffProfileModal('${profile.id}')">Edit</button><button class="pill-btn small danger" onclick="deleteStaffProfile('${profile.id}')">Remove</button></div>` : ""}
+      </div>
+    </article>`).join("") : `
+      <div class="staff-empty">
+        <div><strong>No staff profiles yet.</strong><br>${session.isAdmin ? "Add the first team member with a photo, name and position." : "Staff profiles will appear here once they are added."}</div>
+      </div>`;
+}
+
+function openStaffProfileModal(editId=null){
+  if(!session.isAdmin) return;
+  const editing = editId ? state.staffProfiles.find(profile=>profile.id===editId) : null;
+  openOverlay(`
+    <h3>${editing ? "Edit staff member" : "Add staff member"}</h3>
+    <div class="sub">Upload a photo from your device or use the camera, then add their name and position.</div>
+    <div class="field"><label>Name</label><input id="staff-name" placeholder="e.g. Tristan" value="${editing ? escapeHTML(editing.name) : ""}"></div>
+    <div class="field"><label>Position</label><input id="staff-position" placeholder="e.g. Senior Technician" value="${editing ? escapeHTML(editing.position) : ""}"></div>
+    <div class="field"><label>Photo</label><div style="display:flex; gap:8px; flex-wrap:wrap;"><button class="pill-btn ghost" type="button" onclick="document.getElementById('staff-camera-input').click()">Take photo</button><button class="pill-btn ghost" type="button" onclick="document.getElementById('staff-upload-input').click()">Upload photo</button></div>
+      <input id="staff-camera-input" type="file" accept="image/*" capture="environment" style="display:none" onchange="handleStaffPhoto(this.files[0])">
+      <input id="staff-upload-input" type="file" accept="image/*" style="display:none" onchange="handleStaffPhoto(this.files[0])">
+      <div id="staff-photo-status" class="public-note" style="text-align:left; margin-top:8px;">${editing ? "Current photo kept unless you choose a new one." : "No photo selected yet."}</div>
+    </div>
+    <div class="login-error" id="staff-profile-error"></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveStaffProfile('${editing ? editing.id : ""}')">${editing ? "Save changes" : "Add staff member"}</button></div>
+  `);
+  window.pendingStaffImage = editing ? editing.image : "";
+}
+
+function handleStaffPhoto(file){
+  if(!file || !file.type.startsWith("image/")) return;
+  const reader = new FileReader();
+  reader.onload = event=>{
+    const image = new Image();
+    image.onload = ()=>{
+      const maxSize = 1000;
+      const scale = Math.min(1, maxSize / Math.max(image.width, image.height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(image.width * scale));
+      canvas.height = Math.max(1, Math.round(image.height * scale));
+      canvas.getContext("2d").drawImage(image, 0, 0, canvas.width, canvas.height);
+      window.pendingStaffImage = canvas.toDataURL("image/jpeg", .82);
+      const status = document.getElementById("staff-photo-status");
+      if(status) status.textContent = "Photo ready to save.";
+    };
+    image.src = event.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function saveStaffProfile(id){
+  if(!session.isAdmin) return;
+  const name = document.getElementById("staff-name").value.trim();
+  const position = document.getElementById("staff-position").value.trim();
+  const error = document.getElementById("staff-profile-error");
+  if(!name || !position || !window.pendingStaffImage){ error.textContent = "Add a name, position and photo."; return; }
+  if(id){
+    const profile = state.staffProfiles.find(item=>item.id===id);
+    if(profile) Object.assign(profile, {name, position, image:window.pendingStaffImage});
+  }else{
+    state.staffProfiles.push({id:uid(), name, position, image:window.pendingStaffImage});
+  }
+  window.pendingStaffImage = "";
+  saveState();
+  closeOverlay();
+  renderStaffDirectory();
+  showToast(id ? "Staff profile updated" : "Staff member added");
+}
+
+function deleteStaffProfile(id){
+  if(!session.isAdmin || !confirm("Remove this staff profile?")) return;
+  state.staffProfiles = state.staffProfiles.filter(profile=>profile.id!==id);
+  saveState();
+  renderStaffDirectory();
+  showToast("Staff profile removed");
+}
+
 /* Labor summary — grouped by "Name of labor", auto-calculated from logged Labor jobs across all branches */
 function renderLaborSummary(bodyId, branch){
   const body = document.getElementById(bodyId);
@@ -1667,7 +1815,7 @@ function renderLaborSummary(bodyId, branch){
     const key = t.laborName || "Unnamed";
     if(!byLabor[key]) byLabor[key] = {jobs:0, total:0};
     byLabor[key].jobs += 1;
-    byLabor[key].total += Number(t.fee||0);
+    byLabor[key].total += collectedAmount(t);
   });
   const entries = Object.entries(byLabor).sort((a,b)=> b[1].total - a[1].total);
   body.innerHTML = entries.length ? entries.map(([name,v])=>`
@@ -1689,15 +1837,30 @@ function renderTechSales(bodyId, branch){
     const key = TECHS.includes(t.tech) ? t.tech : (t.tech || "Unassigned");
     if(!byTech[key]) byTech[key] = {jobs:0, total:0};
     byTech[key].jobs += 1;
-    byTech[key].total += Number(t.fee||0);
+    byTech[key].total += collectedAmount(t);
   });
   const entries = Object.entries(byTech).filter(([k,v])=> TECHS.includes(k) || v.jobs>0);
-  body.innerHTML = entries.length ? entries.map(([tech,v])=>`
+  body.innerHTML = entries.length ? entries.map(([tech,v])=>{
+    const rate = Number((state.commissionRates||{})[tech] || 0);
+    const commission = v.total * rate / 100;
+    const rateControl = session.isAdmin ? `<input type="number" min="0" max="100" step="0.1" value="${rate}" onchange="saveCommissionRate('${escapeHTML(tech)}', this.value)" style="width:72px;padding:5px 7px;border:1px solid var(--line-strong);border-radius:7px;background:var(--panel-2);color:var(--text);text-align:right;"> %` : `${rate}%`;
+    return `
     <tr>
       <td>${escapeHTML(tech)}</td>
       <td>${v.jobs}</td>
       <td style="text-align:right" class="fee">${peso(v.total)}</td>
-    </tr>`).join("") : `<tr class="empty-row"><td colspan="3">No jobs logged for ${escapeHTML(branch)} yet.</td></tr>`;
+      <td style="text-align:right">${rateControl}</td>
+      <td style="text-align:right" class="fee">${peso(commission)}</td>
+    </tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="5">No jobs logged for ${escapeHTML(branch)} yet.</td></tr>`;
+}
+
+function saveCommissionRate(tech, value){
+  if(!session.isAdmin || !TECHS.includes(tech)) return;
+  state.commissionRates[tech] = Math.min(100, Math.max(0, Number(value||0)));
+  saveState();
+  renderAll();
+  showToast(`${tech}'s commission updated`);
 }
 
 function renderEmployeeDashboard(){
@@ -1707,7 +1870,7 @@ function renderEmployeeDashboard(){
   const rows = state.transactions.filter(t=> t.branch===ui.branch && t.date===today).sort((a,b)=>b.ts-a.ts);
   document.getElementById("stat-clients").textContent = rows.length;
   document.getElementById("stat-clients-branch").textContent = ui.branch + " branch";
-  document.getElementById("stat-sales").textContent = peso(rows.reduce((s,t)=>s+Number(t.fee||0),0));
+  document.getElementById("stat-sales").textContent = peso(rows.reduce((s,t)=>s+collectedAmount(t),0));
 
   const body = document.getElementById("employee-txn-body");
   body.innerHTML = rows.length ? rows.map(t=>`
@@ -1717,10 +1880,11 @@ function renderEmployeeDashboard(){
       <td>${escapeHTML(phoneLabel(t))}</td>
       <td>${escapeHTML(itemNameById(t.itemUsed))}</td>
       <td>${escapeHTML(t.paymentMode||"—")}</td>
-      <td style="text-align:right" class="fee">${peso(t.fee)}</td>
+      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
       <td style="text-align:right">
         <div class="row-actions" style="justify-content:flex-end;">
           <button onclick="openReceiptModal('${t.id}')" title="Receipt">${receiptIconSVG()}</button>
+          ${balanceAmount(t)>0 ? `<button onclick="collectBalance('${t.id}')" title="Collect balance">${collectIconSVG()}</button>` : ""}
         </div>
       </td>
     </tr>`).join("") : `<tr class="empty-row"><td colspan="7">No jobs logged yet today for ${ui.branch}. Tap "Add job" to log one.</td></tr>`;
@@ -1764,11 +1928,11 @@ function renderAdminOverview(){
   const yearly = state.transactions.filter(t=> t.branch===ui.adminBranch && t.date.slice(0,4)===year);
 
   document.getElementById("admin-stat-clients").textContent = todays.length;
-  document.getElementById("admin-stat-sales").textContent = peso(todays.reduce((s,t)=>s+Number(t.fee||0),0));
+  document.getElementById("admin-stat-sales").textContent = peso(todays.reduce((s,t)=>s+collectedAmount(t),0));
   const lowStockCount = state.inventory.filter(i => (Number(i.quantity)-Number(i.used||0)) <= Number(i.reorderLevel ?? LOW_STOCK_THRESHOLD)).length;
   document.getElementById("admin-stat-lowstock").textContent = lowStockCount;
 
-  const gross = monthly.reduce((s,t)=>s+Number(t.fee||0),0);
+  const gross = monthly.reduce((s,t)=>s+collectedAmount(t),0);
   const capital = totalCapital();
   document.getElementById("fin-gross").textContent = peso(gross);
   document.getElementById("fin-capital").textContent = peso(capital);
@@ -1781,7 +1945,7 @@ function renderAdminOverview(){
   netEl.style.color = net<0 ? "var(--warn)" : "var(--good)";
 
   // Year-to-date profit = gross fees this year minus the cost of parts actually used this year
-  const yearlyGross = yearly.reduce((s,t)=>s+Number(t.fee||0),0);
+  const yearlyGross = yearly.reduce((s,t)=>s+collectedAmount(t),0);
   const ytdCogs = cogsForTransactions(yearly);
   const ytdProfit = yearlyGross - ytdCogs;
   const ytdEl = document.getElementById("fin-ytd");
@@ -1789,11 +1953,23 @@ function renderAdminOverview(){
   ytdEl.style.color = ytdProfit<0 ? "var(--warn)" : "var(--good)";
 
   renderAnalytics(monthly);
+  renderCollectibles(state.transactions.filter(t=>t.branch===ui.adminBranch));
   renderAdminTxnsTable();
 }
 
+function renderCollectibles(rows){
+  const list = document.getElementById("collectibles-list");
+  if(!list) return;
+  const outstanding = rows.filter(t=>balanceAmount(t)>0).sort((a,b)=>balanceAmount(b)-balanceAmount(a));
+  list.innerHTML = outstanding.length ? outstanding.map(t=>`
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;padding:10px 0;border-bottom:1px solid var(--line);">
+      <div><b>${escapeHTML(t.customerName||"Walk-in customer")}</b><div class="stat-sub">${escapeHTML(serviceNoOf(t))} · ${escapeHTML(t.tech||"Unassigned")} · Paid ${peso(collectedAmount(t))} of ${peso(t.fee)}</div></div>
+      <div style="display:flex;align-items:center;gap:8px;"><strong class="fee">${peso(balanceAmount(t))} due</strong><button class="pill-btn small primary" onclick="collectBalance('${t.id}')">Collect balance</button></div>
+    </div>`).join("") : `<div class="muted-box">No outstanding balances for ${escapeHTML(ui.adminBranch)} today.</div>`;
+}
+
 function renderAnalytics(monthly){
-  const avg = monthly.length ? monthly.reduce((s,t)=>s+Number(t.fee||0),0) / monthly.length : 0;
+  const avg = monthly.length ? monthly.reduce((s,t)=>s+collectedAmount(t),0) / monthly.length : 0;
   const completed = monthly.filter(t=>t.jobStatus==="Completed").length;
   const open = monthly.filter(t=>!["Completed","Cancelled"].includes(t.jobStatus || "New")).length;
   const serviceCounts = {};
@@ -1814,7 +1990,7 @@ function renderAnalytics(monthly){
     for(let n=range-1;n>=0;n--){ const d=new Date(getToday()); d.setDate(d.getDate()-n); days.push(todayStr(d)); }
   }
   const trendRows = state.transactions.filter(t=>t.branch===ui.adminBranch);
-  const totals = days.map(day=>trendRows.filter(t=>t.date===day).reduce((s,t)=>s+Number(t.fee||0),0));
+  const totals = days.map(day=>trendRows.filter(t=>t.date===day).reduce((s,t)=>s+collectedAmount(t),0));
   const max = Math.max(...totals, 1);
   const desc = document.getElementById("sales-trend-desc");
   if(desc) desc.textContent = range === "custom" ? `Gross sales for ${ui.trendDate}` : `Daily gross sales for the last ${range} days`;
@@ -1880,7 +2056,7 @@ function renderCustomerHistory(query=""){
     if(q && !(name+" "+phone).toLowerCase().includes(q)) return;
     const key=(name+"|"+phone).toLowerCase();
     if(!groups[key]) groups[key]={name,phone,jobs:[],total:0};
-    groups[key].jobs.push(t); groups[key].total += Number(t.fee||0);
+    groups[key].jobs.push(t); groups[key].total += collectedAmount(t);
   });
   const rows=Object.values(groups).sort((a,b)=>String(b.jobs[b.jobs.length-1].date).localeCompare(String(a.jobs[a.jobs.length-1].date)));
   body.innerHTML=rows.length ? rows.map(g=>{ const last=g.jobs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0]; return `<tr>
@@ -1892,13 +2068,13 @@ function openCustomerHistory(id){
   const seed=state.transactions.find(t=>t.id===id); if(!seed) return;
   const jobs=state.transactions.filter(t=>(t.customerName||"Walk-in customer")=== (seed.customerName||"Walk-in customer") && (t.customerPhone||"") === (seed.customerPhone||""));
   openOverlay(`<h3>${escapeHTML(seed.customerName||"Walk-in customer")}</h3><div class="sub">${escapeHTML(seed.customerPhone||"No phone on file")} · ${jobs.length} job${jobs.length===1?"":"s"}</div>
-    <div class="muted-box">${jobs.map(t=>`${escapeHTML(t.date)} · ${escapeHTML(serviceLabel(t))} · ${peso(t.fee)} · ${escapeHTML(t.jobStatus||"New")}`).join("<br>")}</div>
+    <div class="muted-box">${jobs.map(t=>`${escapeHTML(t.date)} · ${escapeHTML(serviceLabel(t))} · Paid ${peso(collectedAmount(t))} · Balance ${peso(balanceAmount(t))} · ${escapeHTML(t.jobStatus||"New")}`).join("<br>")}</div>
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Close</button><button class="pill-btn primary" onclick="openReceiptModal('${seed.id}')">Open latest receipt</button></div>`);
 }
 function renderInvoices(){
   const body=document.getElementById("invoices-body"); if(!body) return;
   const rows=state.transactions.filter(t=>t.branch===ui.adminBranch).sort((a,b)=>b.ts-a.ts).slice(0,50);
-  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.date)}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span>${(t.invoiceStatus==="Partial"||t.invoiceStatus==="Unpaid")&&Number(t.balance)>0?`<div class="stat-sub" style="margin-top:4px;">Balance: ${peso(t.balance)}</div>`:""}</td><td class="fee" style="text-align:right">${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button></td></tr>`).join("") :
+  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.date)}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span>${balanceAmount(t)>0?`<div class="stat-sub" style="margin-top:4px;">Balance: ${peso(balanceAmount(t))}</div>`:""}</td><td class="fee" style="text-align:right">${peso(collectedAmount(t))} / ${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button>${balanceAmount(t)>0?` <button class="pill-btn small primary" onclick="collectBalance('${t.id}')">Collect</button>`:""}</td></tr>`).join("") :
     `<tr class="empty-row"><td colspan="6">No invoices yet.</td></tr>`;
 }
 
@@ -1927,10 +2103,11 @@ function renderAdminTxnsTable(){
       <td>${escapeHTML(phoneLabel(t))}</td>
       <td>${escapeHTML(itemNameById(t.itemUsed))}</td>
       <td>${escapeHTML(t.paymentMode||"—")}</td>
-      <td style="text-align:right" class="fee">${peso(t.fee)}</td>
+      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
       <td style="text-align:right">
         <div class="row-actions" style="justify-content:flex-end;">
           <button onclick="openReceiptModal('${t.id}')" title="Receipt">${receiptIconSVG()}</button>
+          ${balanceAmount(t)>0 ? `<button onclick="collectBalance('${t.id}')" title="Collect balance">${collectIconSVG()}</button>` : ""}
           <button onclick="openTxnModal(true,'${t.id}')" title="Edit"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 12.5-12.5z"/></svg></button>
           <button class="del" onclick="deleteTxn('${t.id}')" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button>
         </div>
@@ -2004,6 +2181,9 @@ function escapeHTML(s){ return String(s??"").replace(/[&<>"']/g, m=>({"&":"&amp;
 
 function receiptIconSVG(){
   return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2h12v19l-3-2-3 2-3-2-3 2V2z"/><path d="M9 7h6M9 11h6M9 15h3"/></svg>`;
+}
+function collectIconSVG(){
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v12"/><path d="M7 10l5 5 5-5"/><path d="M4 21h16"/></svg>`;
 }
 
 /* ======================= MODALS ======================= */
@@ -2262,6 +2442,18 @@ function saveTxn(id, isAdmin){
   showToast(id ? "Job updated" : "Job added");
 }
 
+function collectBalance(id){
+  const t = state.transactions.find(item=>item.id===id);
+  if(!t || balanceAmount(t)<=0) return;
+  if(!confirm(`Collect ${peso(balanceAmount(t))} balance for ${t.customerName || "this customer"}?`)) return;
+  t.amountPaid = Number(t.fee||0);
+  t.balance = 0;
+  t.invoiceStatus = "Paid";
+  saveState();
+  renderAll();
+  showToast("Balance collected and invoice marked Paid");
+}
+
 /* Keeps inventory "used" counts in sync with the Item Used field on jobs */
 function adjustInventoryUsage(oldItemId, newItemId, oldQty=1, newQty=1){
   if(oldItemId === newItemId && oldQty === newQty) return;
@@ -2425,9 +2617,8 @@ function openReceiptModal(id){
         </tbody>
       </table>
       <div class="receipt-total-row">Total Amount: <b>${peso(t.fee)}</b></div>
-      ${t.invoiceStatus && t.invoiceStatus!=="Paid" ? `
-      <div class="receipt-total-row">Amount Paid: <b>${peso(t.amountPaid||0)}</b></div>
-      <div class="receipt-total-row">Balance: <b>${peso(t.balance!=null?t.balance:t.fee)}</b></div>` : ""}
+      <div class="receipt-total-row">Amount Paid: <b>${peso(collectedAmount(t))}</b></div>
+      <div class="receipt-total-row">Balance: <b>${peso(balanceAmount(t))}</b></div>
       <div class="receipt-foot">Thank you for choosing ${escapeHTML(BIZ_NAME)}!</div>
     </div>
     <div class="modal-actions">
@@ -2435,14 +2626,14 @@ function openReceiptModal(id){
       <button class="pill-btn ghost" onclick="printReceipt()">Print / Scan</button>
       <button class="pill-btn ghost" onclick="copyReceipt('${t.id}')">Copy details</button>
       <button class="pill-btn ghost" onclick="shareReceipt('${t.id}')">Share</button>
+      ${balanceAmount(t)>0 ? `<button class="pill-btn primary" onclick="collectBalance('${t.id}'); closeOverlay();">Collect balance</button>` : ""}
       <button class="pill-btn primary" onclick="downloadReceiptPdf('${t.id}')">Download PDF</button>
     </div>
   `);
 }
 
 function receiptText(t){
-  const balanceLine = t.invoiceStatus && t.invoiceStatus!=="Paid" ? `\nAmount Paid: ${peso(t.amountPaid||0)}\nBalance: ${peso(t.balance!=null?t.balance:t.fee)}` : "";
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}${balanceLine}\nPayment: ${t.paymentMode||"—"}`;
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
@@ -2470,7 +2661,7 @@ function lookupRepair(){
   result.innerHTML=`<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start;">
     <div><div class="stat-label">${escapeHTML(serviceNoOf(t))}</div><h3 style="margin-top:5px;">${escapeHTML(t.description||serviceLabel(t))}</h3><div class="stat-sub">${escapeHTML(t.customerName||"Customer")} · ${escapeHTML(t.date)}</div></div>
     <span class="tag ${status==="Completed"?"good":"low"}">${escapeHTML(status)}</span></div>
-    <div class="muted-box" style="margin-top:14px;">${t.appointmentAt?`Appointment: <b>${escapeHTML(new Date(t.appointmentAt).toLocaleString())}</b><br>`:""}Receipt <b>${escapeHTML(receiptNoOf(t))}</b> · Total <b>${peso(t.fee)}</b></div>
+    <div class="muted-box" style="margin-top:14px;">${t.appointmentAt?`Appointment: <b>${escapeHTML(new Date(t.appointmentAt).toLocaleString())}</b><br>`:""}Receipt <b>${escapeHTML(receiptNoOf(t))}</b> · Total <b>${peso(t.fee)}</b> · Paid <b>${peso(collectedAmount(t))}</b> · Balance <b>${peso(balanceAmount(t))}</b></div>
     <div class="portal-actions"><button class="pill-btn primary" onclick="openReceiptModal('${t.id}')">Digital receipt</button><button class="pill-btn ghost" onclick="copyReceipt('${t.id}')">Copy</button><button class="pill-btn ghost" onclick="shareReceipt('${t.id}')">Share</button></div>`;
 }
 
@@ -2540,6 +2731,10 @@ function downloadReceiptPdf(id){
   let y2 = doc.lastAutoTable.finalY + 16;
   doc.setFont("helvetica","bold"); doc.setFontSize(10);
   doc.text(`Total: ${peso(t.fee)}`, 213, y2, { align:"right" });
+  y2 += 13;
+  doc.text(`Paid: ${peso(collectedAmount(t))}`, 213, y2, { align:"right" });
+  y2 += 13;
+  doc.text(`Balance: ${peso(balanceAmount(t))}`, 213, y2, { align:"right" });
   y2 += 20;
   doc.setFont("helvetica","normal"); doc.setFontSize(8);
   doc.text(`Thank you for choosing ${BIZ_NAME}!`, midX, y2, { align:"center" });
@@ -2673,22 +2868,25 @@ function buildReportData(){
     const key = TECHS.includes(t.tech) ? t.tech : (t.tech || "Unassigned");
     if(!techSalesMap[key]) techSalesMap[key] = {jobs:0, total:0};
     techSalesMap[key].jobs += 1;
-    techSalesMap[key].total += Number(t.fee||0);
+    techSalesMap[key].total += collectedAmount(t);
   });
   const techSales = Object.entries(techSalesMap)
     .filter(([k,v])=> TECHS.includes(k) || v.jobs>0)
-    .map(([tech,v])=>({tech, jobs:v.jobs, total:v.total}));
+    .map(([tech,v])=>{
+      const commissionRate = Number((state.commissionRates||{})[tech] || 0);
+      return {tech, jobs:v.jobs, total:v.total, commissionRate, commissionIncome:v.total*commissionRate/100};
+    });
 
   const laborMap = {};
   jobs.filter(t=>t.serviceType==="Labor").forEach(t=>{
     const key = t.laborName || "Unnamed";
     if(!laborMap[key]) laborMap[key] = {jobs:0, total:0};
     laborMap[key].jobs += 1;
-    laborMap[key].total += Number(t.fee||0);
+    laborMap[key].total += collectedAmount(t);
   });
   const laborSales = Object.entries(laborMap).map(([name,v])=>({name, jobs:v.jobs, total:v.total}));
 
-  const gross = jobs.reduce((s,t)=>s+Number(t.fee||0),0);
+  const gross = jobs.reduce((s,t)=>s+collectedAmount(t),0);
   const capital = totalCapital();
   const cogs = cogsForTransactions(jobs);
   const net = gross - cogs;
@@ -2724,11 +2922,12 @@ function downloadExcelReport(){
     "Customer":t.customerName||"", "Description":t.description||"",
     Quantity:Number(t.quantity||1), "Amount (₱)":Number(t.amount!=null?t.amount:t.fee),
     "Mode of payment":t.paymentMode||"",
-    "Total Amount / Fee (₱)":Number(t.fee||0)
+    "Total Amount / Fee (₱)":Number(t.fee||0),
+    "Amount Paid (₱)":collectedAmount(t), "Balance (₱)":balanceAmount(t)
   })));
 
   const techSheet = XLSX.utils.json_to_sheet(data.techSales.map(r=>({
-    Tech:r.tech, Jobs:r.jobs, "Total sales (₱)":r.total
+    Tech:r.tech, Jobs:r.jobs, "Collected sales (₱)":r.total, "Commission rate (%)":r.commissionRate, "Commission income (₱)":r.commissionIncome
   })));
 
   const laborSheet = XLSX.utils.json_to_sheet(data.laborSales.map(r=>({
@@ -2784,11 +2983,11 @@ function downloadPdfReport(){
   doc.text("Jobs", 40, doc.lastAutoTable.finalY + 20);
   doc.autoTable({
     startY: doc.lastAutoTable.finalY + 28,
-    head: [["Date","Receipt No","Branch","Tech","Service type","Phone","Item used","Payment","Fee"]],
+    head: [["Date","Receipt No","Branch","Tech","Service type","Phone","Item used","Payment","Paid / fee"]],
     body: data.jobs.map(t=>[
       t.date, receiptNoOf(t), t.branch, t.tech, serviceLabel(t),
       [t.phoneBrand,t.phoneModel].filter(Boolean).join(" ") || "—",
-      itemNameById(t.itemUsed), t.paymentMode||"—", peso(t.fee)
+      itemNameById(t.itemUsed), t.paymentMode||"—", peso(collectedAmount(t))
     ]),
     styles:{fontSize:8}, headStyles:{fillColor:[27,95,174]}
   });
