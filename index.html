@@ -1389,31 +1389,59 @@ function saveRememberedSession(role){
 function clearRememberedSession(){
   try{ localStorage.removeItem(SESSION_KEY); }catch(e){ console.warn("Could not clear remembered session.", e); }
 }
-function restoreRememberedSession(){
-  try{
-    const role = localStorage.getItem(SESSION_KEY);
-    if(role==="admin") session.isAdmin = true;
-    if(role==="staff" || role==="admin") session.staffUnlocked = true;
-    return role;
-  }catch(e){ return null; }
-}
 function saveBrowserSession(view){
-  try{ sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify({role:session.isAdmin ? "admin" : "staff", view, username:session.isAdmin ? (session.adminUsername || "") : (session.staffUsername || ""), technician:session.staffTechnician || ""})); }catch(e){}
+  try{ sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify({view})); }catch(e){}
 }
 function restoreBrowserSession(){
   try{
     const saved = JSON.parse(sessionStorage.getItem(BROWSER_SESSION_KEY) || "null");
-    if(!saved || !["admin","staff"].includes(saved.role)) return null;
-    session.isAdmin = saved.role === "admin";
-    session.staffUnlocked = true;
-    if(saved.role === "admin") session.adminUsername = saved.username || null;
-    if(saved.role === "staff"){
-      session.staffUsername = saved.username || null;
-      session.staffTechnician = saved.technician || null;
-      if(!session.staffUsername || !state.staffAccounts.some(account=>account.username===session.staffUsername)) return null;
-    }
-    return saved.view || (session.isAdmin ? "admin" : "employee");
+    if(!saved || !saved.view) return null;
+    // Session role is NEVER restored from browser storage. Firebase Authentication
+    // is the source of truth for whether the user is signed in and what role they have.
+    return saved.view;
   }catch(e){ return null; }
+}
+async function restoreAuthenticatedSession(){
+  try{
+    await withTimeout(authReady, 8000);
+    const user = firebase.auth().currentUser;
+    session.isAdmin = false;
+    session.staffUnlocked = false;
+    session.adminUsername = null;
+    session.staffUsername = null;
+    session.staffTechnician = null;
+
+    if(!user || user.isAnonymous) return null;
+
+    const email = (user.email || "").trim().toLowerCase();
+    const staffAccount = (state.staffAccounts || []).find(account =>
+      (account.email || "").trim().toLowerCase() === email
+    );
+
+    if(staffAccount){
+      session.staffUnlocked = true;
+      session.isAdmin = false;
+      session.staffUsername = staffAccount.username || user.email;
+      session.staffTechnician = staffAccount.technician || "";
+      return "staff";
+    }
+
+    // For now, a signed-in Firebase email/password user that is not assigned
+    // as staff is treated as admin. Final admin allowlisting will be enforced
+    // in Firestore rules in the next security step.
+    // Use the Admin Access display name for the greeting instead of the
+    // Firebase email. If the profile has not been mapped yet, fall back safely.
+    const adminAccount = (state.adminAccounts || []).find(account =>
+      (account.email || "").trim().toLowerCase() === email
+    );
+    session.isAdmin = true;
+    session.staffUnlocked = true;
+    session.adminUsername = adminAccount?.username || state.admin?.username || user.email || "Admin";
+    return "admin";
+  }catch(e){
+    console.warn("Could not restore Firebase session:", e);
+    return null;
+  }
 }
 function clearBrowserSession(){
   try{ sessionStorage.removeItem(BROWSER_SESSION_KEY); }catch(e){}
@@ -1715,6 +1743,7 @@ async function init(){
   }
   await loadState();
   const restoredView = restoreBrowserSession();
+  const restoredRole = await restoreAuthenticatedSession();
   const repBranch = document.getElementById("rep-branch");
   if(repBranch) repBranch.innerHTML = `<option value="__all__">All branches</option>` + BRANCHES.map(b=>`<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join("");
   bindNav();
@@ -1722,9 +1751,12 @@ async function init(){
   document.getElementById("staff-user").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
   session.pendingView = null;
+  // Firebase Authentication, not localStorage/sessionStorage, determines the role.
   enforceClientRole();
-  updateNavForRole(session.isAdmin ? "admin" : session.staffUnlocked ? "staff" : null);
-  switchView(restoredView || "role-select");
+  const activeRole = restoredRole || (session.isAdmin ? "admin" : session.staffUnlocked ? "staff" : null);
+  updateNavForRole(activeRole);
+  const allowedView = activeRole === "admin" ? (restoredView || "admin") : activeRole === "staff" ? (restoredView || "employee") : "role-select";
+  switchView(allowedView);
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
   // Sync with Firebase in the background so the login screen never has to wait on it.
   syncFromFirebase();
@@ -1978,6 +2010,8 @@ async function attemptLogin(){
   }
 
   try{
+    const remember = document.getElementById("remember-admin").checked;
+    await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
 
@@ -1992,12 +2026,20 @@ async function attemptLogin(){
       return;
     }
 
+    // Match the signed-in Firebase email to the Admin Access profile so the
+    // greeting shows the admin's display name, not the Firebase email.
+    const adminAccount = (state.adminAccounts || []).find(item =>
+      (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
+    );
+    const adminName = adminAccount?.username || state.admin?.username || user.email || "Admin";
+
     state.admin = {
       uid: user.uid,
-      email: user.email
+      email: user.email,
+      username: adminName
     };
 
-    session.adminUsername = user.email;
+    session.adminUsername = adminName;
     session.isAdmin = true;
     session.staffUnlocked = true;
     updateNavForRole("admin");
@@ -2014,7 +2056,7 @@ async function attemptLogin(){
 
     let message = "Login failed. Please check your Firebase account.";
     if(error && error.code === "auth/invalid-credential"){
-      message = "Firebase rejected the email or password. Please check the Firebase Authentication user.";
+      message = "Email not recognized";
     }else if(error && error.code === "auth/user-not-found"){
       message = "No Firebase user exists with this email address.";
     }else if(error && error.code === "auth/wrong-password"){
@@ -2055,6 +2097,8 @@ async function attemptStaffLogin(){
   }
 
   try{
+    const remember = document.getElementById("remember-staff").checked;
+    await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, p);
     const user = userCredential.user;
 
@@ -2084,16 +2128,22 @@ async function attemptStaffLogin(){
     err.textContent = message;
   }
 }
-function logout(){
+async function logout(){
   session.isAdmin = false;
   session.staffUnlocked = false;
   session.pendingView = null;
+  session.adminUsername = null;
   session.staffUsername = null;
   session.staffTechnician = null;
   clearRememberedSession();
   clearBrowserSession();
   updateNavForRole(null);
   switchView("role-select");
+  try{
+    await firebase.auth().signOut();
+  }catch(e){
+    console.error("Firebase sign-out failed:", e);
+  }
 }
 
 function openChangePasswordModal(){
