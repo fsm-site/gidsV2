@@ -492,15 +492,15 @@
     }
     .rail .nav-item span.label{ display:block; white-space:nowrap; }
     .rail .nav-item svg{ width:19px; height:19px; }
-    .topbar{ padding:12px 14px; gap:10px; align-items:flex-start; }
-    .topbar-title{ font-size:20px; }
+    .topbar{ padding:14px calc(16px + env(safe-area-inset-right)) 14px calc(16px + env(safe-area-inset-left)); gap:10px; align-items:flex-start; }
+    .topbar-title{ font-size:19px; }
     .topbar-sub{ font-size:10px; }
-    .topbar-right{ gap:6px; flex-wrap:wrap; justify-content:flex-end; }
-    .topbar-right .pill-btn{ padding:7px 9px; font-size:11px; }
-    select.branch-select{ max-width:132px; padding:7px 26px 7px 8px; }
-    .content{ padding:18px 12px 82px; }
-    .stat-row{ gap:10px; }
-    .stat-card{ min-width:calc(50% - 5px); padding:14px 12px; }
+    .topbar-right{ gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+    .topbar-right .pill-btn{ padding:7px 10px; font-size:11px; }
+    select.branch-select{ max-width:128px; padding:7px 26px 7px 8px; }
+    .content{ padding:18px calc(16px + env(safe-area-inset-right)) 90px calc(16px + env(safe-area-inset-left)); max-width:560px; margin:0 auto; }
+    .stat-row{ gap:12px; }
+    .stat-card{ min-width:calc(50% - 6px); padding:16px 14px; }
     .stat-value{ font-size:25px; }
     .panel-head{ padding:13px 14px; }
     .panel-head .desc{ display:none; }
@@ -1768,7 +1768,6 @@ function switchView(key){
       rightEl.innerHTML = branchSelectorHTML("ui.adminBranch") +
         `<div class="badge-role"><span class="dot"></span><span>Admin</span></div>` +
         `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
-        `<button class="pill-btn ghost" onclick="openChangePasswordModal()">Change password</button>` +
         `<button class="pill-btn ghost" onclick="logout()">Log out</button>`;
       bindBranchSelector("admin");
     } else {
@@ -1975,7 +1974,40 @@ function renderAdminAccess(){
   const body = document.getElementById("admin-access-body");
   if(!body || !session.isAdmin) return;
   const accounts = state.adminAccounts || [];
-  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
+  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
+}
+
+function openAdminNameModal(currentUsername){
+  if(!session.isAdmin) return;
+  openOverlay(`<h3>Edit name</h3><div class="sub">This updates the admin's login name only. Password stays the same.</div>
+    <div class="field"><label>New name</label><input id="admin-new-name" value="${escapeHTML(currentUsername)}" autocomplete="off"></div>
+    <div class="login-error" id="admin-name-error"></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminName('${escapeHTML(currentUsername)}')">Save name</button></div>`);
+}
+
+function saveAdminName(oldUsername){
+  const input = document.getElementById("admin-new-name");
+  const error = document.getElementById("admin-name-error");
+  const newName = input.value.trim();
+  if(!newName){ error.textContent = "Enter a name."; return; }
+  if(!Array.isArray(state.adminAccounts) || !state.adminAccounts.length){ error.textContent = "No admin accounts found."; return; }
+  if(state.adminAccounts.some(a=>a.username!==oldUsername && a.username.toLowerCase()===newName.toLowerCase())){ error.textContent = "That name is already in use."; return; }
+  const account = state.adminAccounts.find(a=>a.username===oldUsername);
+  if(!account){ error.textContent = "Admin account not found."; return; }
+  if(newName===oldUsername){ closeOverlay(); return; }
+  // Only touch the username field on the existing account object — password and
+  // every other field stay exactly as they were, so nothing else in the
+  // database can be corrupted by this rename.
+  account.username = newName;
+  if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+  if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
+  if(session.adminUsername===oldUsername) session.adminUsername = newName;
+  state.admin = {...(state.adminAccounts.find(a=>a.username===session.adminUsername) || state.adminAccounts[0])};
+  saveState();
+  closeOverlay();
+  renderAdminAccess();
+  if(session.adminUsername===newName) updateNavForRole("admin");
+  showToast("Name updated");
 }
 
 function openTechnicianNameModal(currentName){
