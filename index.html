@@ -511,6 +511,61 @@
     .modal [style*="grid-template-columns:1fr 1fr"]{ grid-template-columns:1fr !important; }
     #install-app{ right:12px; bottom:76px; }
   }
+
+  /* Compact app navigation: keep every destination reachable without crowding the viewport. */
+  @media (max-width:600px){
+    .rail{
+      height:calc(68px + env(safe-area-inset-bottom));
+      padding:6px 8px env(safe-area-inset-bottom);
+      overflow-x:auto;
+      overflow-y:hidden;
+      justify-content:flex-start;
+      -webkit-overflow-scrolling:touch;
+      scrollbar-width:none;
+    }
+    .rail::-webkit-scrollbar{ display:none; }
+    .rail .nav-item{
+      flex:0 0 68px;
+      width:68px;
+      min-width:68px;
+      min-height:54px;
+      margin:0 2px;
+      padding:7px 3px;
+      border-radius:10px;
+      font-size:10px;
+    }
+    .rail .nav-item .label{ overflow:hidden; text-overflow:ellipsis; }
+    .rail .nav-item[data-view="employee"]{ order:1; }
+    .rail .nav-item[data-view="admin"]{ order:2; }
+    .rail .nav-item[data-view="inventory-public"]{ order:3; }
+    .rail .nav-item[data-view="customer-status"]{ order:4; }
+    .rail .nav-item[data-view="staff-directory"]{ order:5; }
+    .rail .nav-item[data-view="attendance"]{ order:6; }
+    .rail .nav-item[data-view="staff-gate"]{ order:7; }
+    .rail .nav-item[data-view="employee"] .label{ font-size:0; }
+    .rail .nav-item[data-view="employee"] .label::after{ content:"HOME"; font-size:10px; }
+    .rail .nav-item[data-view="inventory-public"] .label{ font-size:0; }
+    .rail .nav-item[data-view="inventory-public"] .label::after{ content:"STOCK"; font-size:10px; }
+    .rail .nav-item[data-view="customer-status"] .label{ font-size:0; }
+    .rail .nav-item[data-view="customer-status"] .label::after{ content:"STATUS"; font-size:10px; }
+    .rail .nav-item[data-view="staff-directory"] .label{ font-size:0; }
+    .rail .nav-item[data-view="staff-directory"] .label::after{ content:"STAFF"; font-size:10px; }
+    .rail .nav-item[data-view="attendance"] .label{ font-size:0; }
+    .rail .nav-item[data-view="attendance"] .label::after{ content:"TIME"; font-size:10px; }
+    .rail .nav-item[data-view="staff-gate"] .label{ font-size:0; }
+    .rail .nav-item[data-view="staff-gate"] .label::after{ content:"SIGN IN"; font-size:10px; }
+    .topbar{
+      min-height:72px;
+      flex-wrap:wrap;
+      padding-top:12px;
+      padding-bottom:10px;
+    }
+    .topbar > div:first-child{ min-width:0; flex:1 1 150px; }
+    .topbar-right{ min-width:0; flex:1 1 100%; order:3; justify-content:flex-start; overflow-x:auto; flex-wrap:nowrap; padding-bottom:1px; scrollbar-width:none; }
+    .topbar-right::-webkit-scrollbar{ display:none; }
+    #refresh-app-btn{ flex:none; align-self:flex-start; }
+    .content{ padding-top:16px; }
+  }
 </style>
 </head>
 <body>
