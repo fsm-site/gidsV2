@@ -1958,25 +1958,49 @@ function bindBranchSelector(who){
 
 /* ======================= LOGIN ======================= */
 function attemptLogin(){
-  const u = document.getElementById("login-user").value.trim();
-  const p = document.getElementById("login-pass").value.trim();
+
+  const email = document.getElementById("login-user").value.trim();
+  const password = document.getElementById("login-pass").value;
   const err = document.getElementById("login-error");
-  const account = (state.adminAccounts || [state.admin]).find(a=>a.username===u && a.password===p);
-  if(account){
-    state.admin = {...account};
-    session.adminUsername = account.username;
-    session.isAdmin = true;
-    session.staffUnlocked = true;
-    updateNavForRole("admin");
-    if(document.getElementById("remember-admin").checked) saveRememberedSession("admin");
-    err.textContent = "";
-    document.getElementById("login-user").value="";
-    document.getElementById("login-pass").value="";
-    switchView("admin");
-    showToast("Welcome back, admin");
-  } else {
-    err.textContent = "Incorrect username or password.";
+
+  err.textContent = "";
+
+  if(!email || !password){
+    err.textContent = "Please enter your email and password.";
+    return;
   }
+
+  firebase.auth().signInWithEmailAndPassword(email, password)
+    .then(userCredential => {
+      const user = userCredential.user;
+
+      state.admin = {
+        uid: user.uid,
+        email: user.email
+      };
+
+      session.adminUsername = user.email;
+      session.isAdmin = true;
+      session.staffUnlocked = true;
+
+      updateNavForRole("admin");
+
+      if(document.getElementById("remember-admin").checked){
+        saveRememberedSession("admin");
+      }
+
+      err.textContent = "";
+      document.getElementById("login-user").value = "";
+      document.getElementById("login-pass").value = "";
+
+      switchView("admin");
+      showToast("Welcome back, admin");
+    })
+    .catch(error => {
+      console.error("Firebase admin login error:", error);
+      err.textContent = "Incorrect email or password.";
+    });
+
 }
 function attemptStaffLogin(){
   const username = document.getElementById("staff-user").value.trim();
