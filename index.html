@@ -620,7 +620,7 @@
             </div>
           </div>
           <table>
-            <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Collected sales</th><th style="text-align:right">Commission</th><th style="text-align:right">Commission income</th></tr></thead>
+            <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Collected sales</th></tr></thead>
             <tbody id="employee-tech-sales-body"></tbody>
           </table>
         </div>
@@ -810,7 +810,7 @@
           <div class="analytics-grid">
             <div class="analytics-card"><div class="stat-label">Average ticket</div><div class="stat-value blue" id="kpi-average-ticket">₱0</div><div class="stat-sub">This month</div></div>
             <div class="analytics-card"><div class="stat-label">Completion rate</div><div class="stat-value" id="kpi-completion">0%</div><div class="stat-sub">Jobs marked completed</div></div>
-            <div class="analytics-card"><div class="stat-label">Open jobs</div><div class="stat-value" id="kpi-open-jobs">0</div><div class="stat-sub">Needs attention</div></div>
+            <div class="analytics-card"><div class="stat-label">Open jobs</div><div class="stat-value" id="kpi-open-jobs">0</div><div class="stat-sub">Not completed or cancelled</div></div>
             <div class="analytics-card"><div class="stat-label">Top service</div><div class="stat-value" id="kpi-top-service" style="font-size:18px;">—</div><div class="stat-sub">By job count</div></div>
           </div>
           <div class="panel">
@@ -1840,6 +1840,7 @@ function renderTechSales(bodyId, branch){
     byTech[key].total += collectedAmount(t);
   });
   const entries = Object.entries(byTech).filter(([k,v])=> TECHS.includes(k) || v.jobs>0);
+  const isStaffDashboard = bodyId === "employee-tech-sales-body";
   body.innerHTML = entries.length ? entries.map(([tech,v])=>{
     const rate = Number((state.commissionRates||{})[tech] || 0);
     const commission = v.total * rate / 100;
@@ -1849,10 +1850,9 @@ function renderTechSales(bodyId, branch){
       <td>${escapeHTML(tech)}</td>
       <td>${v.jobs}</td>
       <td style="text-align:right" class="fee">${peso(v.total)}</td>
-      <td style="text-align:right">${rateControl}</td>
-      <td style="text-align:right" class="fee">${peso(commission)}</td>
+      ${isStaffDashboard ? "" : `<td style="text-align:right">${rateControl}</td><td style="text-align:right" class="fee">${peso(commission)}</td>`}
     </tr>`;
-  }).join("") : `<tr class="empty-row"><td colspan="5">No jobs logged for ${escapeHTML(branch)} yet.</td></tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="${isStaffDashboard ? 3 : 5}">No jobs logged for ${escapeHTML(branch)} yet.</td></tr>`;
 }
 
 function saveCommissionRate(tech, value){
