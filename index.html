@@ -973,8 +973,8 @@
             <h2>STAFF ACCESS</h2>
             <p class="hint">Enter the staff password to open the dashboard</p>
             <div class="field">
-              <label>Username</label>
-              <input type="text" id="staff-user" placeholder="Enter technician username" autocomplete="username">
+              <label>Email</label>
+              <input type="email" id="staff-user" placeholder="Enter staff email" autocomplete="username">
             </div>
             <div class="field">
               <label>Password</label>
@@ -2017,15 +2017,33 @@ async function attemptLogin(){
     err.textContent = message;
   }
 }
-function attemptStaffLogin(){
-  const username = document.getElementById("staff-user").value.trim();
+async function attemptStaffLogin(){
+  const email = document.getElementById("staff-user").value.trim();
   const p = document.getElementById("staff-pass").value;
   const err = document.getElementById("staff-error");
-  const account = (state.staffAccounts || []).find(item=>item.username===username && item.password===p);
-  if(account){
+  err.textContent = "";
+
+  if(!email || !p){
+    err.textContent = "Please enter your Firebase staff email and password.";
+    return;
+  }
+
+  const account = (state.staffAccounts || []).find(item=>
+    (item.email || "").toLowerCase() === email.toLowerCase()
+  );
+
+  if(!account){
+    err.textContent = "This staff email has not been assigned in the app yet.";
+    return;
+  }
+
+  try{
+    const userCredential = await firebase.auth().signInWithEmailAndPassword(email, p);
+    const user = userCredential.user;
+
     session.staffUnlocked = true;
     session.isAdmin = false;
-    session.staffUsername = account.username;
+    session.staffUsername = account.username || user.email;
     session.staffTechnician = account.technician;
     updateNavForRole("staff");
     if(document.getElementById("remember-staff").checked) saveRememberedSession("staff");
@@ -2034,8 +2052,19 @@ function attemptStaffLogin(){
     document.getElementById("staff-pass").value = "";
     switchView(session.pendingView || "employee");
     showToast("Welcome");
-  } else {
-    err.textContent = "Incorrect username or password.";
+  }catch(error){
+    console.error("Firebase staff login error:", error);
+    let message = "Incorrect email or password.";
+    if(error && error.code === "auth/operation-not-allowed"){
+      message = "Firebase Email/Password sign-in is not enabled.";
+    }else if(error && error.code === "auth/too-many-requests"){
+      message = "Too many login attempts. Please wait and try again.";
+    }else if(error && error.code === "auth/network-request-failed"){
+      message = "Network error. Check your internet connection.";
+    }else if(error && error.code === "auth/user-disabled"){
+      message = "This staff account has been disabled.";
+    }
+    err.textContent = message;
   }
 }
 function logout(){
@@ -2166,7 +2195,7 @@ function renderStaffAccess(){
   const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
   body.innerHTML = TECHS.length ? TECHS.map(tech=>{
     const account = accounts.find(item=>item.technician===tech);
-    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}${account && account.email ? `<div class="sub" style="margin-top:3px">${escapeHTML(account.email)}</div>` : ""}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
 }
 
@@ -2285,8 +2314,9 @@ function openStaffAccountModal(editId="", technician=""){
     <h3>${editing ? "Edit staff access" : "Assign staff access"}</h3>
     <div class="sub">Each technician must have a unique username and password.</div>
     <div class="field"><label>Technician</label><select id="staff-account-tech">${options}</select></div>
-    <div class="field"><label>Username</label><input id="staff-account-username" autocomplete="off" value="${editing ? escapeHTML(editing.username) : ""}" placeholder="Unique username"></div>
-    <div class="field"><label>Password</label><input id="staff-account-password" type="password" autocomplete="new-password" value="${editing ? escapeHTML(editing.password) : ""}" placeholder="Unique password"></div>
+    <div class="field"><label>Username</label><input id="staff-account-username" autocomplete="off" value="${editing ? escapeHTML(editing.username) : ""}" placeholder="Display username"></div>
+    <div class="field"><label>Firebase email</label><input id="staff-account-email" type="email" autocomplete="off" value="${editing ? escapeHTML(editing.email || "") : ""}" placeholder="Staff Firebase email"></div>
+    <div class="field"><label>Password</label><input id="staff-account-password" type="password" autocomplete="new-password" value="" placeholder="Do not store here; create in Firebase"></div>
     <div class="login-error" id="staff-account-error"></div>
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveStaffAccount('${editId}')">Save access</button></div>
   `);
@@ -2296,18 +2326,20 @@ function saveStaffAccount(id){
   if(!session.isAdmin) return;
   const technician = document.getElementById("staff-account-tech").value;
   const username = document.getElementById("staff-account-username").value.trim();
-  const password = document.getElementById("staff-account-password").value;
+  const email = document.getElementById("staff-account-email").value.trim().toLowerCase();
   const error = document.getElementById("staff-account-error");
-  if(!technician || !username || !password){ error.textContent = "Technician, username, and password are required."; return; }
+  if(!technician || !username || !email){ error.textContent = "Technician, username, and Firebase email are required."; return; }
   const duplicateUsername = state.staffAccounts.some(item=>item.id!==id && item.username.toLowerCase()===username.toLowerCase());
+  const duplicateEmail = state.staffAccounts.some(item=>item.id!==id && (item.email || "").toLowerCase()===email);
   const duplicateTech = state.staffAccounts.some(item=>item.id!==id && item.technician===technician);
   if(duplicateUsername){ error.textContent = "That username is already assigned."; return; }
+  if(duplicateEmail){ error.textContent = "That Firebase email is already assigned."; return; }
   if(duplicateTech){ error.textContent = "That technician already has an account."; return; }
   if(id){
     const account = state.staffAccounts.find(item=>item.id===id);
-    if(account) Object.assign(account, {technician, username, password});
+    if(account) Object.assign(account, {technician, username, email});
   }else{
-    state.staffAccounts.push({id:uid(), technician, username, password});
+    state.staffAccounts.push({id:uid(), technician, username, email});
   }
   saveState();
   closeOverlay();
