@@ -1250,6 +1250,9 @@ function restoreBrowserSession(){
 function clearBrowserSession(){
   try{ sessionStorage.removeItem(BROWSER_SESSION_KEY); }catch(e){}
 }
+function currentUserName(){
+  return session.isAdmin ? (session.adminUsername || "Admin") : (session.staffTechnician || "Staff");
+}
 
 function defaultState(){
   return {
@@ -1709,8 +1712,7 @@ function switchView(key){
 
   if(key==="employee"){
     document.getElementById("view-employee").classList.add("active");
-    titleEl.innerHTML = `GIDS AYPHONE TECH — <span class="hi">DASHBOARD</span>`;
-    titleEl.innerHTML = `Hi, <span class="hi">Staff!</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = `Dashboard · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
       `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
@@ -1718,12 +1720,12 @@ function switchView(key){
     bindBranchSelector("employee");
   } else if(key==="inventory-public"){
     document.getElementById("view-inventory-public").classList.add("active");
-    titleEl.innerHTML = `Hi, <span class="hi">Staff!</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = `Inventory · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
   } else if(key==="customer-status"){
     document.getElementById("view-customer-status").classList.add("active");
-    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = "Look up a repair and share its digital receipt";
     rightEl.innerHTML = session.staffUnlocked || session.isAdmin ? `<button class="pill-btn danger" onclick="logout()">Sign out</button>` : "";
   } else if(key==="staff-directory"){
@@ -1733,7 +1735,7 @@ function switchView(key){
       return;
     }
     document.getElementById("view-staff-directory").classList.add("active");
-    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = "The people behind every repair";
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     renderStaffDirectory();
@@ -1744,7 +1746,7 @@ function switchView(key){
       return;
     }
     document.getElementById("view-attendance").classList.add("active");
-    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = "Daily check-in and check-out tracking";
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     renderAttendance();
@@ -1761,7 +1763,7 @@ function switchView(key){
     }
     if(session.isAdmin){
       document.getElementById("view-admin-panel").classList.add("active");
-      titleEl.innerHTML = `Hi, <span class="hi">Admin!</span>`;
+      titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
       subEl.innerHTML = `Full access · jobs, inventory and branch sales`;
       rightEl.innerHTML = branchSelectorHTML("ui.adminBranch") +
         `<div class="badge-role"><span class="dot"></span><span>Admin</span></div>` +
