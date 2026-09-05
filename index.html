@@ -566,6 +566,112 @@
     #refresh-app-btn{ flex:none; align-self:flex-start; }
     .content{ padding-top:16px; }
   }
+
+  @media (max-width:600px){
+    body{ overflow-x:hidden; }
+    .subtabs{
+      gap:4px;
+      margin:0 -2px 14px;
+      padding:2px;
+      overflow-x:auto;
+      flex-wrap:nowrap;
+      scrollbar-width:none;
+      -webkit-overflow-scrolling:touch;
+    }
+    .subtabs::-webkit-scrollbar{ display:none; }
+    .subtab{ flex:0 0 auto; min-height:42px; padding:10px 14px; white-space:nowrap; }
+    .panel-head{ flex-wrap:wrap; gap:10px; }
+    .panel-head > div:last-child{ max-width:100%; }
+    #admin-inv-parts .panel-head > div:last-child,
+    #admin-sub-overview .panel-head > div:last-child{
+      width:100%;
+      display:flex !important;
+      flex-wrap:wrap;
+      gap:8px !important;
+    }
+    #admin-inv-parts .panel-head input,
+    #admin-sub-overview .panel-head input{ flex:1 1 150px; width:100% !important; min-width:0; }
+    #admin-inv-parts .panel-head .pill-btn,
+    #admin-sub-overview .panel-head .pill-btn{ flex:1 1 auto; min-height:40px; }
+
+    /* Tables become readable touch cards instead of clipped desktop grids. */
+    .panel > table{
+      display:table;
+      width:100%;
+      table-layout:fixed;
+      overflow:visible;
+    }
+    .panel > table thead{ display:none; }
+    .panel > table tbody{ display:block; width:100%; min-width:0 !important; }
+    .panel > table tbody tr:not(.empty-row){
+      display:grid;
+      grid-template-columns:1fr 1fr;
+      gap:0 16px;
+      padding:10px 14px;
+      border-bottom:1px solid var(--line);
+    }
+    .panel > table tbody td{
+      display:flex;
+      align-items:baseline;
+      justify-content:space-between;
+      min-width:0;
+      gap:8px;
+      padding:6px 0;
+      border:0;
+      font-size:12px;
+      text-align:right !important;
+      overflow-wrap:anywhere;
+    }
+    .panel > table tbody td::before{
+      flex:none;
+      color:var(--muted);
+      font-size:9px;
+      font-weight:800;
+      letter-spacing:.5px;
+      text-transform:uppercase;
+      text-align:left;
+    }
+    #admin-inv-body td:nth-child(1), #admin-inv-body td:nth-child(8),
+    #admin-txn-body td:nth-child(1), #admin-txn-body td:nth-child(7){ grid-column:1 / -1; }
+    #admin-inv-body td:nth-child(1){ display:block; text-align:left !important; padding-bottom:8px; }
+    #admin-inv-body td:nth-child(1)::before{ display:none; }
+    #admin-inv-body td:nth-child(1) b{ display:block; font-size:13px; }
+    #admin-inv-body td:nth-child(8), #admin-txn-body td:nth-child(7){ justify-content:flex-end; padding-top:8px; }
+    #admin-inv-body td:nth-child(2)::before{ content:"Supplier"; }
+    #admin-inv-body td:nth-child(3)::before{ content:"Quantity"; }
+    #admin-inv-body td:nth-child(4)::before{ content:"Cost"; }
+    #admin-inv-body td:nth-child(5)::before{ content:"SRP"; }
+    #admin-inv-body td:nth-child(6)::before{ content:"Total"; }
+    #admin-inv-body td:nth-child(7)::before{ content:"Available"; }
+    #admin-txn-body td:nth-child(1)::before{ content:"Technician"; }
+    #admin-txn-body td:nth-child(2)::before{ content:"Service"; }
+    #admin-txn-body td:nth-child(3)::before{ content:"Phone"; }
+    #admin-txn-body td:nth-child(4)::before{ content:"Item"; }
+    #admin-txn-body td:nth-child(5)::before{ content:"Payment"; }
+    #admin-txn-body td:nth-child(6)::before{ content:"Paid / fee"; }
+    #stock-movements-body td:nth-child(1)::before{ content:"Date"; }
+    #stock-movements-body td:nth-child(2)::before{ content:"Item"; }
+    #stock-movements-body td:nth-child(3)::before{ content:"Type"; }
+    #stock-movements-body td:nth-child(4)::before{ content:"Qty"; }
+    #stock-movements-body td:nth-child(5)::before{ content:"Reference"; }
+    #appointments-body td:nth-child(1)::before{ content:"Appointment"; }
+    #appointments-body td:nth-child(2)::before{ content:"Customer"; }
+    #appointments-body td:nth-child(3)::before{ content:"Phone"; }
+    #appointments-body td:nth-child(4)::before{ content:"Job"; }
+    #appointments-body td:nth-child(5)::before{ content:"Status"; }
+    #customer-history-body td:nth-child(1)::before{ content:"Customer"; }
+    #customer-history-body td:nth-child(2)::before{ content:"Phone"; }
+    #customer-history-body td:nth-child(3)::before{ content:"Jobs"; }
+    #customer-history-body td:nth-child(4)::before{ content:"Last visit"; }
+    #customer-history-body td:nth-child(5)::before{ content:"Collected"; }
+    #invoices-body td:nth-child(1)::before{ content:"Invoice"; }
+    #invoices-body td:nth-child(2)::before{ content:"Customer"; }
+    #invoices-body td:nth-child(3)::before{ content:"Date"; }
+    #invoices-body td:nth-child(4)::before{ content:"Status"; }
+    #invoices-body td:nth-child(5)::before{ content:"Paid / total"; }
+    .panel > table tbody td .row-actions{ margin-left:auto; }
+    .panel > table tbody .empty-row{ display:block; min-width:0; padding:24px 14px; }
+  }
 </style>
 </head>
 <body>
