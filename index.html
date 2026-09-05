@@ -229,7 +229,7 @@
   .overlay.active{ display:flex; }
   .modal{ background:linear-gradient(145deg,rgba(18,42,67,.98),rgba(6,18,34,.98)); border:1px solid var(--line-strong); border-radius:18px; width:100%; max-width:420px; max-height:calc(100vh - 40px); overflow-y:auto; padding:26px 26px 22px; box-shadow:0 24px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter:blur(24px) saturate(145%); }
   .modal.job-modal{ background:linear-gradient(145deg,rgba(18,42,67,.98),rgba(6,18,34,.98)); border-color:var(--line-strong); box-shadow:0 24px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); }
- .modal h3{ font-size:17px; margin-bottom:2px; color:#eef7ff; }
+  .modal h3{ font-size:17px; margin-bottom:2px; color:#eef7ff; }
 .modal .sub{ color:#a9c4dc; font-size:12px; margin-bottom:18px; }
 .modal .field label{ --text:#e7f3ff; --muted:#a9c4dc; }
   .modal-actions{ display:flex; justify-content:flex-end; gap:8px; margin-top:6px; }
@@ -1115,42 +1115,27 @@ function hideSplash(){
   setTimeout(()=>el.remove(), 550);
 }
 
-async function let unsubscribeRemote = null;
-
 async function loadState(){
-  // Load from Firebase FIRST so every device/browser starts from the real, shared data.
-  // Local storage is only an offline fallback now — it can no longer overwrite the cloud.
+  // Show the UI instantly using whatever is cached locally; Firebase syncs in the background.
+  state = readLocal() || defaultState();
+  finishStateMigration();
+}
+
+async function syncFromFirebase(){
   try{
-    await withTimeout(authReady, 10000);
-    const snap = await withTimeout(stateDocRef.get(), 10000);
+    await withTimeout(authReady, 8000);
+    const snap = await withTimeout(stateDocRef.get(), 8000);
     if(snap.exists){
       state = snap.data();
-    } else {
-      state = readLocal() || defaultState();
+      finishStateMigration();
+      try{ renderAll(); }catch(e){ /* view not ready yet */ }
+    }else{
       await stateDocRef.set(state);
     }
   }catch(e){
-    console.error("Firebase load failed, falling back to local cache:", e);
-    state = readLocal() || defaultState();
-    showToast("Offline — showing last saved data on this device");
+    console.error("Firebase load failed:", e);
+    showToast("Couldn’t reach Firebase — using local data");
   }
-  finishStateMigration();
-  writeLocal();
-  listenForRemoteChanges();
-}
-
-// Live sync: whenever ANY device saves, every open device/browser updates automatically.
-function listenForRemoteChanges(){
-  if(unsubscribeRemote) return;
-  unsubscribeRemote = stateDocRef.onSnapshot(snap=>{
-    if(!snap.exists) return;
-    state = snap.data();
-    finishStateMigration();
-    writeLocal();
-    try{ renderAll(); }catch(e){ /* view not mounted yet on first load */ }
-  }, err=>{
-    console.error("Live sync error:", err);
-  });
 }
 
 function finishStateMigration(){
@@ -1231,7 +1216,10 @@ async function init(){
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
   switchView(rememberedRole==="admin" ? "admin" : "employee");
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
-
+  hideSplash();
+  // Sync with Firebase in the background so the login screen never has to wait on it.
+  syncFromFirebase();
+}
 init();
 
 let deferredInstallPrompt = null;
