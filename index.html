@@ -1315,7 +1315,7 @@ function switchView(key){
 
   if(key==="employee"){
     document.getElementById("view-employee").classList.add("active");
-    titleEl.innerHTML = `GIDS IPHONE REPAIR — <span class="hi">DASHBOARD</span>`;
+    titleEl.innerHTML = `GIDS AYPHONE TECH — <span class="hi">DASHBOARD</span>`;
     subEl.innerHTML = `Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
       `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>`;
@@ -2177,8 +2177,8 @@ function calcPercent(){
 }
 
 /* ======================= RECEIPT ======================= */
-const BIZ_NAME = "GIDS IPHONE REPAIR"; // EDIT ME: your shop name
-const BIZ_LOCATION = "123 Main Street, Your City"; // EDIT ME: your address
+const BIZ_NAME = "GIDS AYPHONE TECH"; // EDIT ME: your shop name
+const BIZ_LOCATION = "SAN ANTONIO, FLORIDABLANCA, PAMPANGA"; // EDIT ME: your address
 
 function receiptNumber(t){ return "R-" + String(t.ts).slice(-6); }
 /* Falls back to a timestamp-based number for jobs logged before auto-numbering existed */
