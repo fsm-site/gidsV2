@@ -951,34 +951,9 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 
 <!-- Firebase (compat build — works with plain script tags and inline onclick, no bundler needed) -->
-/* ======================= FIREBASE ======================= */
-const firebaseConfig = {
-  apiKey: "AIzaSyCE-z1dfae_aeHTfsTNFJIBkEGXBX1I0nY",
-  authDomain: "gids-7d44c.firebaseapp.com",
-  projectId: "gids-7d44c",
-  storageBucket: "gids-7d44c.firebasestorage.app",
-  messagingSenderId: "775047537844",
-  appId: "1:775047537844:web:5fc318c97bb975d236e3e1",
-  measurementId: "G-1S9R7PF3L7"
-};
-firebase.initializeApp(firebaseConfig);
-const db = firebase.firestore();
-// Keep the existing production document so current GIDS data remains intact.
-const stateDocRef = db.collection("app-data").doc("gids-tech-data");
-
-// Firestore rules for the original GIDS project require authentication.
-let authReadyResolve;
-const authReady = new Promise(res => { authReadyResolve = res; });
-firebase.auth().onAuthStateChanged(user => {
-  if(user){
-    authReadyResolve();
-  }else{
-    firebase.auth().signInAnonymously().catch(e => {
-      console.error("Anonymous sign-in failed:", e);
-      showToast("Couldn’t connect securely — check your connection");
-    });
-  }
-});
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
 
 <script>
 /* ======================= STATE ======================= */
@@ -1048,7 +1023,6 @@ firebase.auth().onAuthStateChanged(user => {
 
 let unsubscribeSnapshot = null;
 let suppressNextSnapshot = false;
-});
 
 const STORAGE_KEY = "gids-tech-data";
 const SESSION_KEY = "gids-remembered-session";
