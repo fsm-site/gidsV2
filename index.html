@@ -833,6 +833,7 @@
           <div class="subtab" data-sub="operations">Operations</div>
           <div class="subtab" data-sub="inventory">Inventory</div>
           <div class="subtab" data-sub="reports">Reports</div>
+            <div class="subtab" data-sub="security">Security</div>
         </div>
 
         <!-- Overview subtab -->
@@ -931,13 +932,6 @@
             </table>
           </div>
 
-          <div class="panel">
-            <div class="panel-head">
-              <div><h3>Staff access</h3><div class="desc">Assign unique login credentials or revoke access for technicians.</div></div>
-              <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
-            </div>
-            <table><thead><tr><th>Technician</th><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
-          </div>
         </div>
 
         <!-- Inventory subtab -->
@@ -1079,6 +1073,24 @@
             </div>
           </div>
         </div>
+
+        <!-- Security subtab -->
+        <div id="admin-sub-security" style="display:none;">
+          <div class="panel">
+            <div class="panel-head">
+              <div><h3>Staff access</h3><div class="desc">Assign unique login credentials or revoke access for technicians.</div></div>
+              <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
+            </div>
+            <table><thead><tr><th>Technician</th><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
+          </div>
+          <div class="panel">
+            <div class="panel-head">
+              <div><h3>Admin access</h3><div class="desc">Manage administrator usernames and passwords.</div></div>
+              <button class="pill-btn primary" onclick="openAdminAccountModal()">+ Add admin</button>
+            </div>
+            <table><thead><tr><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -1218,7 +1230,7 @@ function restoreRememberedSession(){
   }catch(e){ return null; }
 }
 function saveBrowserSession(view){
-  try{ sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify({role:session.isAdmin ? "admin" : "staff", view, username:session.staffUsername || "", technician:session.staffTechnician || ""})); }catch(e){}
+  try{ sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify({role:session.isAdmin ? "admin" : "staff", view, username:session.isAdmin ? (session.adminUsername || "") : (session.staffUsername || ""), technician:session.staffTechnician || ""})); }catch(e){}
 }
 function restoreBrowserSession(){
   try{
@@ -1226,6 +1238,7 @@ function restoreBrowserSession(){
     if(!saved || !["admin","staff"].includes(saved.role)) return null;
     session.isAdmin = saved.role === "admin";
     session.staffUnlocked = true;
+    if(saved.role === "admin") session.adminUsername = saved.username || null;
     if(saved.role === "staff"){
       session.staffUsername = saved.username || null;
       session.staffTechnician = saved.technician || null;
@@ -1264,7 +1277,8 @@ function defaultState(){
     attendance:[],
     staffAccounts:[],
     deletedRecords:{transactions:[], inventory:[], suppliers:[], staffProfiles:[], attendance:[], staffAccounts:[]},
-    removedTechnicians:[]
+    removedTechnicians:[],
+    removedAdminUsernames:[]
   };
 }
 
@@ -1395,6 +1409,7 @@ function finishStateMigration(){
     if(!Array.isArray(state.deletedRecords[key])){ state.deletedRecords[key] = []; migrated = true; }
   });
   if(!Array.isArray(state.removedTechnicians)){ state.removedTechnicians = []; migrated = true; }
+  if(!Array.isArray(state.removedAdminUsernames)){ state.removedAdminUsernames = []; migrated = true; }
   if(!Array.isArray(state.transactions)){ state.transactions = []; migrated = true; }
   if(!Array.isArray(state.technicians)){
     state.technicians = [...TECHS];
@@ -1440,6 +1455,8 @@ function applyDeletionTombstones(target){
   });
   const removed = new Set(Array.isArray(target.removedTechnicians) ? target.removedTechnicians : []);
   if(Array.isArray(target.technicians)) target.technicians = target.technicians.filter(tech=>!removed.has(tech));
+  const removedAdmins = new Set(Array.isArray(target.removedAdminUsernames) ? target.removedAdminUsernames : []);
+  if(Array.isArray(target.adminAccounts)) target.adminAccounts = target.adminAccounts.filter(account=>!removedAdmins.has(account.username));
 }
 /* Combines two array fields (e.g. transactions) keyed by id/keyFn so that a
    record present on either side always survives — nothing is ever dropped
@@ -1475,6 +1492,9 @@ function mergeStates(cloud, local){
   });
   merged.removedTechnicians = Array.from(new Set([
     ...(cloud.removedTechnicians || []), ...(local.removedTechnicians || [])
+  ]));
+  merged.removedAdminUsernames = Array.from(new Set([
+    ...(cloud.removedAdminUsernames || []), ...(local.removedAdminUsernames || [])
   ]));
   merged.technicians = Array.from(new Set([
     ...(Array.isArray(cloud.technicians) ? cloud.technicians : []),
@@ -1606,6 +1626,8 @@ function bindNav(){
       document.getElementById("admin-sub-operations").style.display = ui.subtab==="operations" ? "block":"none";
       document.getElementById("admin-sub-inventory").style.display = ui.subtab==="inventory" ? "block":"none";
       document.getElementById("admin-sub-reports").style.display = ui.subtab==="reports" ? "block":"none";
+      document.getElementById("admin-sub-security").style.display = ui.subtab==="security" ? "block":"none";
+      if(ui.subtab==="security"){ renderStaffAccess(); renderAdminAccess(); }
     });
   });
   document.querySelectorAll(".subtab[data-pubsub]").forEach(el=>{
@@ -1688,19 +1710,20 @@ function switchView(key){
   if(key==="employee"){
     document.getElementById("view-employee").classList.add("active");
     titleEl.innerHTML = `GIDS AYPHONE TECH — <span class="hi">DASHBOARD</span>`;
-    subEl.innerHTML = `Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
+    titleEl.innerHTML = `Hi, <span class="hi">Staff!</span>`;
+    subEl.innerHTML = `Dashboard · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
       `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
       `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     bindBranchSelector("employee");
   } else if(key==="inventory-public"){
     document.getElementById("view-inventory-public").classList.add("active");
-    titleEl.innerHTML = `<span class="hi">INVENTORY</span>`;
-    subEl.innerHTML = `Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
+    titleEl.innerHTML = `Hi, <span class="hi">Staff!</span>`;
+    subEl.innerHTML = `Inventory · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
   } else if(key==="customer-status"){
     document.getElementById("view-customer-status").classList.add("active");
-    titleEl.innerHTML = `REPAIR <span class="hi">STATUS</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
     subEl.innerHTML = "Look up a repair and share its digital receipt";
     rightEl.innerHTML = session.staffUnlocked || session.isAdmin ? `<button class="pill-btn danger" onclick="logout()">Sign out</button>` : "";
   } else if(key==="staff-directory"){
@@ -1710,7 +1733,7 @@ function switchView(key){
       return;
     }
     document.getElementById("view-staff-directory").classList.add("active");
-    titleEl.innerHTML = `MEET YOUR <span class="hi">STAFF</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
     subEl.innerHTML = "The people behind every repair";
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     renderStaffDirectory();
@@ -1721,7 +1744,7 @@ function switchView(key){
       return;
     }
     document.getElementById("view-attendance").classList.add("active");
-    titleEl.innerHTML = `TECHNICIAN <span class="hi">ATTENDANCE</span>`;
+    titleEl.innerHTML = `Hi, <span class="hi">${session.isAdmin ? "Admin" : "Staff"}!</span>`;
     subEl.innerHTML = "Daily check-in and check-out tracking";
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     renderAttendance();
@@ -1738,7 +1761,7 @@ function switchView(key){
     }
     if(session.isAdmin){
       document.getElementById("view-admin-panel").classList.add("active");
-      titleEl.innerHTML = `ADMIN <span class="hi">PANEL</span>`;
+      titleEl.innerHTML = `Hi, <span class="hi">Admin!</span>`;
       subEl.innerHTML = `Full access · jobs, inventory and branch sales`;
       rightEl.innerHTML = branchSelectorHTML("ui.adminBranch") +
         `<div class="badge-role"><span class="dot"></span><span>Admin</span></div>` +
@@ -1942,8 +1965,81 @@ function renderStaffAccess(){
   const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
   body.innerHTML = TECHS.length ? TECHS.map(tech=>{
     const account = accounts.find(item=>item.technician===tech);
-    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit" : "Assign"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
+}
+
+function renderAdminAccess(){
+  const body = document.getElementById("admin-access-body");
+  if(!body || !session.isAdmin) return;
+  const accounts = state.adminAccounts || [];
+  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
+}
+
+function openTechnicianNameModal(currentName){
+  if(!session.isAdmin) return;
+  openOverlay(`<h3>Edit technician name</h3><div class="sub">This updates the technician name across jobs, attendance, profiles, commissions and access.</div>
+    <div class="field"><label>New name</label><input id="technician-new-name" value="${escapeHTML(currentName)}" autocomplete="off"></div>
+    <div class="login-error" id="technician-name-error"></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveTechnicianName('${escapeHTML(currentName)}')">Save name</button></div>`);
+}
+
+function saveTechnicianName(oldName){
+  const input = document.getElementById("technician-new-name");
+  const error = document.getElementById("technician-name-error");
+  const newName = input.value.trim();
+  if(!newName){ error.textContent = "Enter a technician name."; return; }
+  if(TECHS.some(name=>name!==oldName && name.toLowerCase()===newName.toLowerCase())){ error.textContent = "That technician name already exists."; return; }
+  const index = TECHS.indexOf(oldName);
+  if(index < 0) return;
+  TECHS[index] = newName;
+  state.technicians = [...TECHS];
+  state.transactions.forEach(job=>{ if(job.tech===oldName) job.tech = newName; });
+  state.attendance.forEach(record=>{ if(record.tech===oldName) record.tech = newName; });
+  state.staffProfiles.forEach(profile=>{ if(profile.name===oldName) profile.name = newName; });
+  state.staffAccounts.forEach(account=>{ if(account.technician===oldName) account.technician = newName; });
+  if(state.commissionRates && Object.prototype.hasOwnProperty.call(state.commissionRates, oldName)){
+    state.commissionRates[newName] = state.commissionRates[oldName];
+    delete state.commissionRates[oldName];
+  }
+  if(session.staffTechnician===oldName) session.staffTechnician = newName;
+  saveState(); closeOverlay(); renderAll(); renderStaffAccess(); showToast("Technician name updated");
+}
+
+function openAdminAccountModal(username=""){
+  if(!session.isAdmin) return;
+  const editing = username ? state.adminAccounts.find(account=>account.username===username) : null;
+  openOverlay(`<h3>${editing ? "Edit admin access" : "Add admin access"}</h3><div class="sub">Admin credentials are unique to each administrator.</div>
+    <div class="field"><label>Username</label><input id="admin-account-username" value="${editing ? escapeHTML(editing.username) : ""}" autocomplete="off"></div>
+    <div class="field"><label>Password</label><input id="admin-account-password" type="password" value="${editing ? escapeHTML(editing.password) : ""}" autocomplete="new-password"></div>
+    <div class="login-error" id="admin-account-error"></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminAccount('${editing ? escapeHTML(editing.username) : ""}')">Save access</button></div>`);
+}
+
+function saveAdminAccount(oldUsername){
+  const username = document.getElementById("admin-account-username").value.trim();
+  const password = document.getElementById("admin-account-password").value;
+  const error = document.getElementById("admin-account-error");
+  if(!username || !password){ error.textContent = "Username and password are required."; return; }
+  if(state.adminAccounts.some(account=>account.username!==oldUsername && account.username.toLowerCase()===username.toLowerCase())){ error.textContent = "That username is already assigned."; return; }
+  if(oldUsername){ const account = state.adminAccounts.find(item=>item.username===oldUsername); if(account) Object.assign(account,{username,password}); }
+  else state.adminAccounts.push({username,password});
+  if(oldUsername && oldUsername!==username){
+    if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+    if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
+  }
+  if(session.adminUsername===oldUsername) session.adminUsername = username;
+  state.admin = {...(state.adminAccounts.find(account=>account.username===session.adminUsername) || state.adminAccounts[0])};
+  saveState(); closeOverlay(); renderAdminAccess(); showToast("Admin access updated");
+}
+
+function deleteAdminAccount(username){
+  if(!session.isAdmin || state.adminAccounts.length<=1 || !confirm("Revoke this admin access?")) return;
+  state.adminAccounts = state.adminAccounts.filter(account=>account.username!==username);
+  if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+  if(!state.removedAdminUsernames.includes(username)) state.removedAdminUsernames.push(username);
+  if(session.adminUsername===username){ logout(); return; }
+  saveState(); renderAdminAccess(); showToast("Admin access revoked");
 }
 
 function openStaffAccountModal(editId="", technician=""){
