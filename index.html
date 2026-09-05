@@ -1158,7 +1158,9 @@ async function syncFromFirebase(){
     }else{
       // No document exists in Firestore at all yet — this is the only
       // situation where it's safe to seed the cloud from local state.
-      stateDocRef.set(state).catch(e=>console.error(e));
+      // Still goes through the transaction-based merge so two tabs racing
+      // to create it can't stomp on each other.
+      mergeAndSaveToCloud(state).then(merged=>{ state = merged; writeLocal(); }).catch(e=>console.error(e));
     }
   }, err=>{
     console.error("Firestore listener error:", err);
@@ -1228,12 +1230,57 @@ function readLocal(){
 function writeLocal(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* ignore quota errors */ }
 }
+/* Combines two array fields (e.g. transactions) keyed by id/keyFn so that a
+   record present on either side always survives — nothing is ever dropped
+   just because one copy is temporarily behind the other. */
+function mergeArrayByKey(cloudArr, localArr, keyFn){
+  const map = new Map();
+  (Array.isArray(cloudArr) ? cloudArr : []).forEach(item => map.set(keyFn(item), item));
+  (Array.isArray(localArr) ? localArr : []).forEach(item => map.set(keyFn(item), item));
+  return Array.from(map.values());
+}
+
+/* Merges the cloud's current copy with this device's local copy field by
+   field, so a save can never erase a record that only exists on the other
+   side — every job, inventory item, supplier, stock movement, technician
+   and admin account from BOTH copies is kept. */
+function mergeStates(cloud, local){
+  const merged = {...cloud, ...local};
+  merged.transactions = mergeArrayByKey(cloud.transactions, local.transactions, t=>t.id);
+  merged.inventory = mergeArrayByKey(cloud.inventory, local.inventory, i=>i.id);
+  merged.suppliers = mergeArrayByKey(cloud.suppliers, local.suppliers, s=>s.id);
+  merged.stockMovements = mergeArrayByKey(cloud.stockMovements, local.stockMovements, m=>m.id || JSON.stringify(m));
+  merged.adminAccounts = mergeArrayByKey(cloud.adminAccounts, local.adminAccounts, a=>a.username);
+  merged.technicians = Array.from(new Set([
+    ...(Array.isArray(cloud.technicians) ? cloud.technicians : []),
+    ...(Array.isArray(local.technicians) ? local.technicians : [])
+  ].map(t=>String(t).trim()).filter(Boolean)));
+  merged.nextSeq = Math.max(Number(cloud.nextSeq)||1, Number(local.nextSeq)||1);
+  return merged;
+}
+
+/* Writes to Firestore through a transaction that reads whatever is
+   currently there first, merges it with the local copy, and writes the
+   merged result back — so a save is always additive, never a blind
+   overwrite that could erase data recorded elsewhere. */
+async function mergeAndSaveToCloud(localState){
+  return db.runTransaction(async (transaction) => {
+    const snap = await transaction.get(stateDocRef);
+    const cloud = snap.exists ? snap.data() : {};
+    const merged = mergeStates(cloud, localState);
+    transaction.set(stateDocRef, merged);
+    return merged;
+  });
+}
+
 async function saveState(){
   writeLocal();
   try{
     await withTimeout(authReady, 8000);
     suppressNextSnapshot = true;
-    await withTimeout(stateDocRef.set(state), 10000);
+    const merged = await withTimeout(mergeAndSaveToCloud(state), 10000);
+    state = merged;
+    writeLocal();
   }catch(e){
     console.error("Firebase sync failed:", e);
     showToast("Saved locally, but couldn't sync to the cloud");
