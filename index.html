@@ -1146,11 +1146,18 @@ async function syncFromFirebase(){
   unsubscribeSnapshot = stateDocRef.onSnapshot(snap=>{
     if(suppressNextSnapshot){ suppressNextSnapshot = false; return; }
     if(snap.exists){
+      // The cloud copy is the source of truth. Load it, patch in any missing
+      // fields locally, and only push back to Firestore if something was
+      // actually missing — never overwrite real cloud data with a blind
+      // local default.
       state = snap.data();
-      finishStateMigration();
+      const migrated = finishStateMigration();
       writeLocal();
+      if(migrated) saveState();
       try{ renderAll(); }catch(e){ /* view not ready yet */ }
     }else{
+      // No document exists in Firestore at all yet — this is the only
+      // situation where it's safe to seed the cloud from local state.
       stateDocRef.set(state).catch(e=>console.error(e));
     }
   }, err=>{
@@ -1204,7 +1211,13 @@ function finishStateMigration(){
   state.transactions.forEach(t=>Object.assign(t,{
     jobStatus:"New", appointmentAt:"", customerPhone:"", customerEmail:"", invoiceStatus:"Paid"
   }, t));
-  if(migrated) saveState();
+  // Local-only: this never pushes to Firestore by itself. The one place
+  // that's allowed to write a "default/migrated" state to the cloud is
+  // syncFromFirebase(), and only once it actually knows what the cloud
+  // currently holds — that's what prevents an empty local cache from
+  // ever wiping out real cloud data.
+  if(migrated) writeLocal();
+  return migrated;
 }
 function readLocal(){
   try{
