@@ -1396,6 +1396,22 @@ function restoreBrowserSession(){
     return saved.view;
   }catch(e){ return null; }
 }
+async function getFirebaseRole(user){
+  if(!user || user.isAnonymous) return null;
+  try{
+    const roleSnap = await withTimeout(
+      db.collection("userRoles").doc(user.uid).get(),
+      8000
+    );
+    if(!roleSnap.exists) return null;
+    const role = roleSnap.data()?.role;
+    return role === "admin" || role === "staff" ? role : null;
+  }catch(e){
+    console.error("Could not read Firebase role:", e);
+    return null;
+  }
+}
+
 async function restoreAuthenticatedSession(){
   try{
     await withTimeout(authReady, 8000);
@@ -1408,12 +1424,15 @@ async function restoreAuthenticatedSession(){
 
     if(!user || user.isAnonymous) return null;
 
+    const role = await getFirebaseRole(user);
     const email = (user.email || "").trim().toLowerCase();
-    const staffAccount = (state.staffAccounts || []).find(account =>
-      (account.email || "").trim().toLowerCase() === email
-    );
 
-    if(staffAccount){
+    if(role === "staff"){
+      const staffAccount = (state.staffAccounts || []).find(account =>
+        (account.email || "").trim().toLowerCase() === email
+      );
+      if(!staffAccount) return null;
+
       session.staffUnlocked = true;
       session.isAdmin = false;
       session.staffUsername = staffAccount.username || user.email;
@@ -1421,18 +1440,19 @@ async function restoreAuthenticatedSession(){
       return "staff";
     }
 
-    // For now, a signed-in Firebase email/password user that is not assigned
-    // as staff is treated as admin. Final admin allowlisting will be enforced
-    // in Firestore rules in the next security step.
-    // Use the Admin Access display name for the greeting instead of the
-    // Firebase email. If the profile has not been mapped yet, fall back safely.
-    const adminAccount = (state.adminAccounts || []).find(account =>
-      (account.email || "").trim().toLowerCase() === email
-    );
-    session.isAdmin = true;
-    session.staffUnlocked = true;
-    session.adminUsername = adminAccount?.username || state.admin?.username || user.email || "Admin";
-    return "admin";
+    if(role === "admin"){
+      const adminAccount = (state.adminAccounts || []).find(account =>
+        (account.email || "").trim().toLowerCase() === email
+      );
+      session.isAdmin = true;
+      session.staffUnlocked = true;
+      session.adminUsername = adminAccount?.username || state.admin?.username || user.email || "Admin";
+      return "admin";
+    }
+
+    // A signed-in Firebase account without an explicit application role
+    // is not allowed into either Admin or Staff mode.
+    return null;
   }catch(e){
     console.warn("Could not restore Firebase session:", e);
     return null;
@@ -2031,14 +2051,18 @@ async function attemptLogin(){
     const user = userCredential.user;
     await loadCloudStateAfterLogin();
 
-    // A Firebase account is NOT automatically an administrator.
-    // If this email is assigned as staff, it must use Staff Login instead.
-    const staffAccount = (state.staffAccounts || []).find(item =>
-      (item.email || "").toLowerCase() === (user.email || "").toLowerCase()
-    );
-    if(staffAccount){
+    // Firebase userRoles is now the source of truth for the application role.
+    const role = await getFirebaseRole(user);
+
+    if(role === "staff"){
       await firebase.auth().signOut();
       err.textContent = "This email is assigned as staff. Please use Staff Login.";
+      return;
+    }
+
+    if(role !== "admin"){
+      await firebase.auth().signOut();
+      err.textContent = "This email is not assigned an Admin role.";
       return;
     }
 
@@ -2109,6 +2133,15 @@ async function attemptStaffLogin(){
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, p);
     const user = userCredential.user;
     await loadCloudStateAfterLogin();
+
+    const role = await getFirebaseRole(user);
+    if(role !== "staff"){
+      await firebase.auth().signOut();
+      err.textContent = role === "admin"
+        ? "This email is assigned as admin. Please use Admin Login."
+        : "This email is not assigned a Staff role.";
+      return;
+    }
 
     const account = (state.staffAccounts || []).find(item=>
       (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
