@@ -91,7 +91,7 @@
   .main{ flex:1; min-width:0; }
   .topbar{
     display:flex; align-items:center; justify-content:space-between;
-    padding:18px 28px; background:rgba(248,252,255,.62); backdrop-filter:blur(20px) saturate(145%);
+    padding:18px 180px 18px 28px; background:rgba(248,252,255,.62); backdrop-filter:blur(20px) saturate(145%);
     border-bottom:1px solid var(--line);
     position:sticky; top:0; z-index:5;
   }
@@ -812,6 +812,10 @@
             <h2>STAFF ACCESS</h2>
             <p class="hint">Enter the staff password to open the dashboard</p>
             <div class="field">
+              <label>Username</label>
+              <input type="text" id="staff-user" placeholder="Enter technician username" autocomplete="username">
+            </div>
+            <div class="field">
               <label>Password</label>
               <input type="password" id="staff-pass" placeholder="Enter staff password" autocomplete="current-password">
             </div>
@@ -925,6 +929,14 @@
               <thead><tr><th>Tech</th><th>Jobs</th><th style="text-align:right">Collected sales</th><th style="text-align:right">Commission</th><th style="text-align:right">Commission income</th></tr></thead>
               <tbody id="admin-tech-sales-body"></tbody>
             </table>
+          </div>
+
+          <div class="panel">
+            <div class="panel-head">
+              <div><h3>Staff access</h3><div class="desc">Assign unique login credentials or revoke access for technicians.</div></div>
+              <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
+            </div>
+            <table><thead><tr><th>Technician</th><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
           </div>
         </div>
 
@@ -1161,8 +1173,9 @@ let suppressNextSnapshot = false;
 
 const STORAGE_KEY = "gids-tech-data";
 const SESSION_KEY = "gids-remembered-session";
+const BROWSER_SESSION_KEY = "gids-active-page";
 let state = null;
-let session = { isAdmin:false, staffUnlocked:false, pendingView:null, adminUsername:null };
+let session = { isAdmin:false, staffUnlocked:false, pendingView:null, adminUsername:null, staffUsername:null, staffTechnician:null };
 let ui = { branch: BRANCHES[0], adminBranch: BRANCHES[0], subtab:"overview", pubSub:"parts", invSub:"parts", jobSearch:"", invSearch:"", trendRange:7, trendDate:todayStr(), attendancePeriod:"daily" };
 
 /* Force the current year to 2026 for all "today" displays and date logic,
@@ -1204,12 +1217,31 @@ function restoreRememberedSession(){
     return role;
   }catch(e){ return null; }
 }
+function saveBrowserSession(view){
+  try{ sessionStorage.setItem(BROWSER_SESSION_KEY, JSON.stringify({role:session.isAdmin ? "admin" : "staff", view, username:session.staffUsername || "", technician:session.staffTechnician || ""})); }catch(e){}
+}
+function restoreBrowserSession(){
+  try{
+    const saved = JSON.parse(sessionStorage.getItem(BROWSER_SESSION_KEY) || "null");
+    if(!saved || !["admin","staff"].includes(saved.role)) return null;
+    session.isAdmin = saved.role === "admin";
+    session.staffUnlocked = true;
+    if(saved.role === "staff"){
+      session.staffUsername = saved.username || null;
+      session.staffTechnician = saved.technician || null;
+      if(!session.staffUsername || !state.staffAccounts.some(account=>account.username===session.staffUsername)) return null;
+    }
+    return saved.view || (session.isAdmin ? "admin" : "employee");
+  }catch(e){ return null; }
+}
+function clearBrowserSession(){
+  try{ sessionStorage.removeItem(BROWSER_SESSION_KEY); }catch(e){}
+}
 
 function defaultState(){
   return {
     adminAccounts: ADMIN_ACCOUNTS,
     admin:{ username:"adminjaja", password:"162022gids" },
-    staffPassword:"SAGids",
     transactions:[],
     nextSeq:1,
     inventory:[
@@ -1229,7 +1261,10 @@ function defaultState(){
     stockMovements:[],
     staffProfiles:[],
     commissionRates:{},
-    attendance:[]
+    attendance:[],
+    staffAccounts:[],
+    deletedRecords:{transactions:[], inventory:[], suppliers:[], staffProfiles:[], attendance:[], staffAccounts:[]},
+    removedTechnicians:[]
   };
 }
 
@@ -1299,6 +1334,11 @@ async function syncFromFirebase(){
       state = snap.data();
       const migrated = finishStateMigration();
       writeLocal();
+      if(session.staffUnlocked && !session.isAdmin && session.staffUsername && !state.staffAccounts.some(account=>account.username===session.staffUsername)){
+        logout();
+        showToast("Your staff access has been revoked");
+        return;
+      }
       if(migrated) saveState();
       try{ renderAll(); }catch(e){ /* view not ready yet */ }
     }else{
@@ -1336,8 +1376,8 @@ function finishStateMigration(){
     state.admin = {...state.adminAccounts[0]};
     migrated = true;
   }
-  if(!state.staffPassword){
-    state.staffPassword = "SAGids";
+  if(Object.prototype.hasOwnProperty.call(state, "staffPassword")){
+    delete state.staffPassword;
     migrated = true;
   }
   if(!state.nextSeq){
@@ -1349,6 +1389,12 @@ function finishStateMigration(){
   if(!Array.isArray(state.staffProfiles)){ state.staffProfiles = []; migrated = true; }
   if(!state.commissionRates || typeof state.commissionRates !== "object" || Array.isArray(state.commissionRates)){ state.commissionRates = {}; migrated = true; }
   if(!Array.isArray(state.attendance)){ state.attendance = []; migrated = true; }
+  if(!Array.isArray(state.staffAccounts)){ state.staffAccounts = []; migrated = true; }
+  if(!state.deletedRecords || typeof state.deletedRecords !== "object"){ state.deletedRecords = {}; migrated = true; }
+  ["transactions","inventory","suppliers","staffProfiles","attendance","staffAccounts"].forEach(key=>{
+    if(!Array.isArray(state.deletedRecords[key])){ state.deletedRecords[key] = []; migrated = true; }
+  });
+  if(!Array.isArray(state.removedTechnicians)){ state.removedTechnicians = []; migrated = true; }
   if(!Array.isArray(state.transactions)){ state.transactions = []; migrated = true; }
   if(!Array.isArray(state.technicians)){
     state.technicians = [...TECHS];
@@ -1362,6 +1408,7 @@ function finishStateMigration(){
   state.transactions.forEach(t=>Object.assign(t,{
     jobStatus:"New", appointmentAt:"", customerPhone:"", customerEmail:"", invoiceStatus:"Paid"
   }, t));
+  applyDeletionTombstones(state);
   // Local-only: this never pushes to Firestore by itself. The one place
   // that's allowed to write a "default/migrated" state to the cloud is
   // syncFromFirebase(), and only once it actually knows what the cloud
@@ -1378,6 +1425,21 @@ function readLocal(){
 }
 function writeLocal(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* ignore quota errors */ }
+}
+function markDeleted(collection, id){
+  if(!state.deletedRecords) state.deletedRecords = {};
+  if(!Array.isArray(state.deletedRecords[collection])) state.deletedRecords[collection] = [];
+  if(id && !state.deletedRecords[collection].includes(id)) state.deletedRecords[collection].push(id);
+}
+function applyDeletionTombstones(target){
+  const deleted = target.deletedRecords || {};
+  ["transactions","inventory","suppliers","staffProfiles","attendance"].forEach(collection=>{
+    if(Array.isArray(target[collection]) && Array.isArray(deleted[collection])){
+      target[collection] = target[collection].filter(item=>!deleted[collection].includes(item.id));
+    }
+  });
+  const removed = new Set(Array.isArray(target.removedTechnicians) ? target.removedTechnicians : []);
+  if(Array.isArray(target.technicians)) target.technicians = target.technicians.filter(tech=>!removed.has(tech));
 }
 /* Combines two array fields (e.g. transactions) keyed by id/keyFn so that a
    record present on either side always survives — nothing is ever dropped
@@ -1402,12 +1464,24 @@ function mergeStates(cloud, local){
   merged.staffProfiles = mergeArrayByKey(cloud.staffProfiles, local.staffProfiles, p=>p.id);
   merged.commissionRates = {...(cloud.commissionRates||{}), ...(local.commissionRates||{})};
   merged.attendance = mergeArrayByKey(cloud.attendance, local.attendance, a=>a.id);
+  merged.staffAccounts = mergeArrayByKey(cloud.staffAccounts, local.staffAccounts, a=>a.id);
   merged.adminAccounts = mergeArrayByKey(cloud.adminAccounts, local.adminAccounts, a=>a.username);
+  merged.deletedRecords = {};
+  ["transactions","inventory","suppliers","staffProfiles","attendance","staffAccounts"].forEach(collection=>{
+    merged.deletedRecords[collection] = Array.from(new Set([
+      ...((cloud.deletedRecords||{})[collection] || []),
+      ...((local.deletedRecords||{})[collection] || [])
+    ]));
+  });
+  merged.removedTechnicians = Array.from(new Set([
+    ...(cloud.removedTechnicians || []), ...(local.removedTechnicians || [])
+  ]));
   merged.technicians = Array.from(new Set([
     ...(Array.isArray(cloud.technicians) ? cloud.technicians : []),
     ...(Array.isArray(local.technicians) ? local.technicians : [])
   ].map(t=>String(t).trim()).filter(Boolean)));
   merged.nextSeq = Math.max(Number(cloud.nextSeq)||1, Number(local.nextSeq)||1);
+  applyDeletionTombstones(merged);
   return merged;
 }
 
@@ -1449,16 +1523,16 @@ async function init(){
     if(heroWatermark) heroWatermark.src = splashImage.src;
   }
   await loadState();
+  const restoredView = restoreBrowserSession();
   const repBranch = document.getElementById("rep-branch");
   if(repBranch) repBranch.innerHTML = `<option value="__all__">All branches</option>` + BRANCHES.map(b=>`<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join("");
   bindNav();
   document.getElementById("staff-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
+  document.getElementById("staff-user").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
-  session.isAdmin = false;
-  session.staffUnlocked = false;
   session.pendingView = null;
-  updateNavForRole(null);
-  switchView("role-select");
+  updateNavForRole(session.isAdmin ? "admin" : session.staffUnlocked ? "staff" : null);
+  switchView(restoredView || "role-select");
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
   // Sync with Firebase in the background so the login screen never has to wait on it.
   syncFromFirebase();
@@ -1590,6 +1664,8 @@ function switchView(key){
   const subEl = document.getElementById("topbar-sub");
   const rightEl = document.getElementById("topbar-right");
 
+  if(key !== "role-select" && (session.isAdmin || session.staffUnlocked)) saveBrowserSession(key);
+
   if(key==="role-select"){
     document.getElementById("view-role-select").classList.add("active");
     titleEl.innerHTML = `GIDS AYPHONE TECH`;
@@ -1718,26 +1794,34 @@ function attemptLogin(){
   }
 }
 function attemptStaffLogin(){
+  const username = document.getElementById("staff-user").value.trim();
   const p = document.getElementById("staff-pass").value;
   const err = document.getElementById("staff-error");
-  if(p === state.staffPassword){
+  const account = (state.staffAccounts || []).find(item=>item.username===username && item.password===p);
+  if(account){
     session.staffUnlocked = true;
     session.isAdmin = false;
+    session.staffUsername = account.username;
+    session.staffTechnician = account.technician;
     updateNavForRole("staff");
     if(document.getElementById("remember-staff").checked) saveRememberedSession("staff");
     err.textContent = "";
+    document.getElementById("staff-user").value = "";
     document.getElementById("staff-pass").value = "";
     switchView(session.pendingView || "employee");
     showToast("Welcome");
   } else {
-    err.textContent = "Incorrect password.";
+    err.textContent = "Incorrect username or password.";
   }
 }
 function logout(){
   session.isAdmin = false;
   session.staffUnlocked = false;
   session.pendingView = null;
+  session.staffUsername = null;
+  session.staffTechnician = null;
   clearRememberedSession();
+  clearBrowserSession();
   updateNavForRole(null);
   switchView("role-select");
 }
@@ -1824,6 +1908,8 @@ function removeTechnician(){
   }
   TECHS.splice(index, 1);
   state.technicians = [...TECHS];
+  if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
+  if(!state.removedTechnicians.includes(selected)) state.removedTechnicians.push(selected);
   saveState();
   closeOverlay();
   renderAll();
@@ -1840,6 +1926,7 @@ function renderAll(){
   renderLaborSummary("public-labor-body", null);
   if(session.isAdmin){
     renderAdminOverview();
+    renderStaffAccess();
     renderAdminInventory();
     renderStockMovements();
     renderOperations();
@@ -1847,6 +1934,64 @@ function renderAll(){
     renderLaborSummary("admin-labor-body", null);
     renderAttendanceReport();
   }
+}
+
+function renderStaffAccess(){
+  const body = document.getElementById("staff-access-body");
+  if(!body || !session.isAdmin) return;
+  const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
+  body.innerHTML = TECHS.length ? TECHS.map(tech=>{
+    const account = accounts.find(item=>item.technician===tech);
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit" : "Assign"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
+}
+
+function openStaffAccountModal(editId="", technician=""){
+  if(!session.isAdmin) return;
+  const editing = editId ? state.staffAccounts.find(item=>item.id===editId) : null;
+  const selectedTech = editing ? editing.technician : technician;
+  const options = TECHS.map(tech=>`<option value="${escapeHTML(tech)}" ${tech===selectedTech ? "selected" : ""}>${escapeHTML(tech)}</option>`).join("");
+  openOverlay(`
+    <h3>${editing ? "Edit staff access" : "Assign staff access"}</h3>
+    <div class="sub">Each technician must have a unique username and password.</div>
+    <div class="field"><label>Technician</label><select id="staff-account-tech">${options}</select></div>
+    <div class="field"><label>Username</label><input id="staff-account-username" autocomplete="off" value="${editing ? escapeHTML(editing.username) : ""}" placeholder="Unique username"></div>
+    <div class="field"><label>Password</label><input id="staff-account-password" type="password" autocomplete="new-password" value="${editing ? escapeHTML(editing.password) : ""}" placeholder="Unique password"></div>
+    <div class="login-error" id="staff-account-error"></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveStaffAccount('${editId}')">Save access</button></div>
+  `);
+}
+
+function saveStaffAccount(id){
+  if(!session.isAdmin) return;
+  const technician = document.getElementById("staff-account-tech").value;
+  const username = document.getElementById("staff-account-username").value.trim();
+  const password = document.getElementById("staff-account-password").value;
+  const error = document.getElementById("staff-account-error");
+  if(!technician || !username || !password){ error.textContent = "Technician, username, and password are required."; return; }
+  const duplicateUsername = state.staffAccounts.some(item=>item.id!==id && item.username.toLowerCase()===username.toLowerCase());
+  const duplicateTech = state.staffAccounts.some(item=>item.id!==id && item.technician===technician);
+  if(duplicateUsername){ error.textContent = "That username is already assigned."; return; }
+  if(duplicateTech){ error.textContent = "That technician already has an account."; return; }
+  if(id){
+    const account = state.staffAccounts.find(item=>item.id===id);
+    if(account) Object.assign(account, {technician, username, password});
+  }else{
+    state.staffAccounts.push({id:uid(), technician, username, password});
+  }
+  saveState();
+  closeOverlay();
+  renderStaffAccess();
+  showToast(id ? "Staff access updated" : "Staff access assigned");
+}
+
+function deleteStaffAccount(id){
+  if(!session.isAdmin || !confirm("Revoke this technician's access?")) return;
+  state.staffAccounts = state.staffAccounts.filter(item=>item.id!==id);
+  markDeleted("staffAccounts", id);
+  saveState();
+  renderStaffAccess();
+  showToast("Staff access revoked");
 }
 
 function attendanceReportWindow(period){
@@ -1978,6 +2123,7 @@ function saveAttendanceEdit(id){
 function deleteAttendance(id){
   if(!session.isAdmin || !confirm("Delete this attendance record?")) return;
   state.attendance = state.attendance.filter(item=>item.id!==id);
+  markDeleted("attendance", id);
   saveState();
   renderAttendance();
   showToast("Attendance record deleted");
@@ -2088,6 +2234,7 @@ function saveStaffProfile(id){
 function deleteStaffProfile(id){
   if(!session.isAdmin || !confirm("Remove this staff profile?")) return;
   state.staffProfiles = state.staffProfiles.filter(profile=>profile.id!==id);
+  markDeleted("staffProfiles", id);
   saveState();
   renderStaffDirectory();
   showToast("Staff profile removed");
@@ -2788,6 +2935,7 @@ function deleteTxn(id){
   const t = state.transactions.find(x=>x.id===id);
   if(t && t.itemUsed) adjustInventoryUsage(t.itemUsed, null, Number(t.quantity||1), 0);
   state.transactions = state.transactions.filter(t=>t.id!==id);
+  markDeleted("transactions", id);
   saveState(); renderAll();
   showToast("Job deleted");
 }
@@ -3090,6 +3238,7 @@ function saveInv(id){
 function deleteInv(id){
   if(!confirm("Delete this item from inventory?")) return;
   state.inventory = state.inventory.filter(i=>i.id!==id);
+  markDeleted("inventory", id);
   saveState(); renderAll();
   showToast("Item deleted");
 }
