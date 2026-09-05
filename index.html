@@ -451,6 +451,9 @@
   .install-app.visible{ display:inline-flex; }
   #install-app{ position:fixed; right:22px; bottom:22px; z-index:20; }
   .remember-choice{ display:flex; align-items:center; gap:8px; margin:2px 0 12px; color:var(--muted); font-size:11.5px; text-align:left; cursor:pointer; }
+  .login-submit.is-loading{ opacity:.78; cursor:wait; }
+  .login-spinner{ width:15px; height:15px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; display:inline-block; vertical-align:-3px; margin-right:7px; animation:loginSpin .7s linear infinite; }
+  @keyframes loginSpin{ to{ transform:rotate(360deg); } }
   .remember-choice input{ accent-color:var(--blue); }
   @media (max-width:520px){
     .overlay{ align-items:flex-start; padding:6px; }
@@ -959,7 +962,7 @@
             </div>
             <label class="remember-choice"><input type="checkbox" id="remember-admin" checked> Remember me on this device</label>
             <div class="login-error" id="login-error"></div>
-            <button class="pill-btn primary" style="width:100%; padding:11px;" onclick="attemptLogin()">Log in</button>
+            <button class="pill-btn primary login-submit" id="admin-login-btn" style="width:100%; padding:11px;" onclick="attemptLogin()">Log in</button>
           </div>
         </div>
       </div>
@@ -982,7 +985,7 @@
             </div>
             <label class="remember-choice"><input type="checkbox" id="remember-staff" checked> Remember me on this device</label>
             <div class="login-error" id="staff-error"></div>
-            <button class="pill-btn primary" style="width:100%; padding:11px;" onclick="attemptStaffLogin()">Unlock</button>
+            <button class="pill-btn primary login-submit" id="staff-login-btn" style="width:100%; padding:11px;" onclick="attemptStaffLogin()">Unlock</button>
           </div>
         </div>
       </div>
@@ -2032,6 +2035,21 @@ async function loadCloudStateAfterLogin(){
     return false;
   }
 }
+function setLoginLoading(buttonId, loadingText){
+  const btn = document.getElementById(buttonId);
+  if(!btn) return;
+  if(loadingText){
+    if(!btn.dataset.originalText) btn.dataset.originalText = btn.textContent.trim();
+    btn.disabled = true;
+    btn.classList.add("is-loading");
+    btn.innerHTML = `<span class="login-spinner" aria-hidden="true"></span>${loadingText}`;
+  }else{
+    btn.disabled = false;
+    btn.classList.remove("is-loading");
+    btn.textContent = btn.dataset.originalText || "Unlock";
+  }
+}
+
 async function attemptLogin(){
   const email = document.getElementById("login-user").value.trim();
   const password = document.getElementById("login-pass").value;
@@ -2043,6 +2061,8 @@ async function attemptLogin(){
     err.textContent = "Please enter your email and password.";
     return;
   }
+
+  setLoginLoading("admin-login-btn", "Signing in...");
 
   try{
     const remember = document.getElementById("remember-admin").checked;
@@ -2114,6 +2134,8 @@ async function attemptLogin(){
     }
 
     err.textContent = message;
+  }finally{
+    setLoginLoading("admin-login-btn", null);
   }
 }
 async function attemptStaffLogin(){
@@ -2126,6 +2148,8 @@ async function attemptStaffLogin(){
     err.textContent = "Please enter your Firebase staff email and password.";
     return;
   }
+
+  setLoginLoading("staff-login-btn", "Signing in...");
 
   try{
     const remember = document.getElementById("remember-staff").checked;
@@ -2176,6 +2200,8 @@ async function attemptStaffLogin(){
       message = "This staff account has been disabled.";
     }
     err.textContent = message;
+  }finally{
+    setLoginLoading("staff-login-btn", null);
   }
 }
 async function logout(){
