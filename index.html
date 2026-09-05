@@ -951,7 +951,7 @@
             <p class="hint">Manage jobs, inventory and branch sales</p>
             <div class="field">
               <label>Email</label>
-              <input type="email" id="login-user" placeholder="Enter email" autocomplete="username">
+              <input type="email" id="login-user" placeholder="Enter admin email" autocomplete="username">
             </div>
             <div class="field">
               <label>Password</label>
@@ -1973,9 +1973,8 @@ async function attemptLogin(){
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
 
-    // Transitional migration:
-    // Firebase Authentication verifies the administrator's identity.
-    // The existing admin/staff access-management UI remains untouched for now.
+    // Transitional migration: Firebase verifies the administrator's identity.
+    // Existing Admin Access / Staff Access management remains unchanged for now.
     state.admin = {
       uid: user.uid,
       email: user.email
@@ -1984,33 +1983,35 @@ async function attemptLogin(){
     session.adminUsername = user.email;
     session.isAdmin = true;
     session.staffUnlocked = true;
-
     updateNavForRole("admin");
 
-    if(document.getElementById("remember-admin").checked){
-      saveRememberedSession("admin");
-    }
+    if(document.getElementById("remember-admin").checked) saveRememberedSession("admin");
 
+    err.textContent = "";
     document.getElementById("login-user").value = "";
     document.getElementById("login-pass").value = "";
-
     switchView("admin");
     showToast("Welcome back, admin");
-
   }catch(error){
     console.error("Firebase admin login error:", error);
 
-    }catch(error){
-  console.error("Firebase admin login error:", error);
-
-  err.textContent = error.code + " — " + error.message;
-}
-    if(error && error.code === "auth/too-many-requests"){
+    let message = "Login failed. Please check your Firebase account.";
+    if(error && error.code === "auth/invalid-credential"){
+      message = "Firebase rejected the email or password. Please check the Firebase Authentication user.";
+    }else if(error && error.code === "auth/user-not-found"){
+      message = "No Firebase user exists with this email address.";
+    }else if(error && error.code === "auth/wrong-password"){
+      message = "The Firebase password is incorrect.";
+    }else if(error && error.code === "auth/invalid-email"){
+      message = "Please enter a valid email address.";
+    }else if(error && error.code === "auth/too-many-requests"){
       message = "Too many login attempts. Please wait and try again.";
     }else if(error && error.code === "auth/network-request-failed"){
       message = "Network error. Check your internet connection.";
     }else if(error && error.code === "auth/user-disabled"){
-      message = "This admin account has been disabled.";
+      message = "This Firebase admin account has been disabled.";
+    }else if(error && error.code === "auth/operation-not-allowed"){
+      message = "Firebase Email/Password sign-in is not enabled.";
     }
 
     err.textContent = message;
