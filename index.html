@@ -1753,7 +1753,7 @@ function openCustomerHistory(id){
 function renderInvoices(){
   const body=document.getElementById("invoices-body"); if(!body) return;
   const rows=state.transactions.filter(t=>t.branch===ui.adminBranch).sort((a,b)=>b.ts-a.ts).slice(0,50);
-  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.date)}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span></td><td class="fee" style="text-align:right">${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button></td></tr>`).join("") :
+  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.date)}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span>${(t.invoiceStatus==="Partial"||t.invoiceStatus==="Unpaid")&&Number(t.balance)>0?`<div class="stat-sub" style="margin-top:4px;">Balance: ${peso(t.balance)}</div>`:""}</td><td class="fee" style="text-align:right">${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button></td></tr>`).join("") :
     `<tr class="empty-row"><td colspan="6">No invoices yet.</td></tr>`;
 }
 
@@ -1926,7 +1926,15 @@ function openTxnModal(isAdmin=false, editId=null){
     </div>
     <div class="field"><label>Total amount (₱) <span style="font-weight:400;color:var(--muted)">quantity × amount</span></label><input id="f-fee" type="number" min="0" value="${editing?editing.fee:0}" readonly style="background:var(--panel-2); font-weight:700;"></div>
     <div class="field"><label>Mode of payment</label><select id="f-payment"><option value="">Select payment…</option>${paymentOptions}</select></div>
-    <div class="field"><label>Invoice status</label><select id="f-invoice-status"><option value="Paid" ${!editing||editing.invoiceStatus==="Paid"?"selected":""}>Paid</option><option value="Unpaid" ${editing&&editing.invoiceStatus==="Unpaid"?"selected":""}>Unpaid</option><option value="Partial" ${editing&&editing.invoiceStatus==="Partial"?"selected":""}>Partial</option></select></div>
+    <div class="field"><label>Invoice status</label><select id="f-invoice-status" onchange="onInvoiceStatusChange()"><option value="Paid" ${!editing||editing.invoiceStatus==="Paid"?"selected":""}>Paid</option><option value="Unpaid" ${editing&&editing.invoiceStatus==="Unpaid"?"selected":""}>Unpaid</option><option value="Partial" ${editing&&editing.invoiceStatus==="Partial"?"selected":""}>Partial</option></select></div>
+    <div class="field" id="f-partial-wrap" style="display:none;">
+      <label>Amount paid (₱)</label>
+      <input id="f-amount-paid" type="number" min="0" placeholder="0" value="${editing&&editing.amountPaid!=null?editing.amountPaid:""}" oninput="recalcBalance()">
+    </div>
+    <div class="field" id="f-balance-wrap" style="display:none;">
+      <label>Balance (₱)</label>
+      <input id="f-balance" type="number" readonly style="background:var(--panel-2); font-weight:700;" value="${editing&&editing.balance!=null?editing.balance:0}">
+    </div>
     <div class="modal-actions">
       <button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button>
       <button class="pill-btn primary" onclick="saveTxn(${editing? `'${editing.id}'` : "null"}, ${isAdmin})">${editing?"Save changes":"Add job"}</button>
@@ -1937,6 +1945,7 @@ function openTxnModal(isAdmin=false, editId=null){
   const svcEl = document.getElementById("f-service");
   if(editing) svcEl.value = editing.serviceType;
   onServiceTypeChange();
+  onInvoiceStatusChange();
   const modalBody = document.getElementById("modal-body");
   modalBody.addEventListener("keydown", event=>{
     if(event.key !== "Enter" || event.target.tagName === "TEXTAREA" || event.target.tagName === "SELECT") return;
@@ -1992,6 +2001,46 @@ function recalcTotal(){
   const qty = Math.max(1, Number(qtyEl.value || 1));
   const amt = Number(amtEl.value || 0);
   feeEl.value = Number((qty * amt).toFixed(2));
+  recalcBalance();
+}
+
+/* Shows/hides the Amount paid + Balance fields based on Invoice status, and recalculates */
+function onInvoiceStatusChange(){
+  const statusEl = document.getElementById("f-invoice-status");
+  const partialWrap = document.getElementById("f-partial-wrap");
+  const balanceWrap = document.getElementById("f-balance-wrap");
+  if(!statusEl || !partialWrap || !balanceWrap) return;
+  const status = statusEl.value;
+  if(status === "Partial"){
+    partialWrap.style.display = "block";
+    balanceWrap.style.display = "block";
+  } else if(status === "Unpaid"){
+    partialWrap.style.display = "none";
+    balanceWrap.style.display = "block";
+  } else {
+    partialWrap.style.display = "none";
+    balanceWrap.style.display = "none";
+  }
+  recalcBalance();
+}
+
+/* Keeps the read-only Balance field in sync with Total amount, Invoice status, and Amount paid */
+function recalcBalance(){
+  const statusEl = document.getElementById("f-invoice-status");
+  const feeEl = document.getElementById("f-fee");
+  const balEl = document.getElementById("f-balance");
+  if(!statusEl || !feeEl || !balEl) return;
+  const status = statusEl.value;
+  const fee = Number(feeEl.value || 0);
+  let balance = 0;
+  if(status === "Unpaid"){
+    balance = fee;
+  } else if(status === "Partial"){
+    const paidEl = document.getElementById("f-amount-paid");
+    const paid = Number((paidEl && paidEl.value) || 0);
+    balance = Math.max(0, Number((fee - paid).toFixed(2)));
+  }
+  balEl.value = balance;
 }
 
 function saveTxn(id, isAdmin){
@@ -2014,6 +2063,18 @@ function saveTxn(id, isAdmin){
   const branch = branchEl ? branchEl.value : ui.branch;
   if(!tech || !serviceType){ showToast("Tech and service type are required"); return; }
   if(!paymentMode){ showToast("Mode of payment is required"); return; }
+
+  let amountPaid = 0, balance = 0;
+  if(invoiceStatus === "Paid"){
+    amountPaid = fee; balance = 0;
+  } else if(invoiceStatus === "Unpaid"){
+    amountPaid = 0; balance = fee;
+  } else if(invoiceStatus === "Partial"){
+    amountPaid = Number(document.getElementById("f-amount-paid").value || 0);
+    if(amountPaid <= 0){ showToast("Enter the amount paid so far"); return; }
+    if(amountPaid >= fee){ showToast("Amount paid must be less than the total amount for a Partial invoice"); return; }
+    balance = Number((fee - amountPaid).toFixed(2));
+  }
 
   let laborName = "", phoneBrand = "", phoneModel = "", itemUsed = "";
   if(serviceType==="Labor"){
@@ -2040,14 +2101,14 @@ function saveTxn(id, isAdmin){
 
   if(id){
     const t = state.transactions.find(x=>x.id===id);
-    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, description, quantity, amount, date, paymentMode});
+    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode});
   } else {
     // Auto-assign the next Service No. / Receipt No. from the persistent counter
     const seq = state.nextSeq || 1;
     state.nextSeq = seq + 1;
     const serviceNo = "SVC-" + String(seq).padStart(4,"0");
     const receiptNo = "RCPT-" + String(seq).padStart(4,"0");
-    state.transactions.push({id:uid(), ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, description, quantity, amount, paymentMode, serviceNo, receiptNo});
+    state.transactions.push({id:uid(), ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo});
   }
   adjustInventoryUsage(previousItem, itemUsed, previousQty, quantity);
   saveState();
@@ -2219,6 +2280,9 @@ function openReceiptModal(id){
         </tbody>
       </table>
       <div class="receipt-total-row">Total Amount: <b>${peso(t.fee)}</b></div>
+      ${t.invoiceStatus && t.invoiceStatus!=="Paid" ? `
+      <div class="receipt-total-row">Amount Paid: <b>${peso(t.amountPaid||0)}</b></div>
+      <div class="receipt-total-row">Balance: <b>${peso(t.balance!=null?t.balance:t.fee)}</b></div>` : ""}
       <div class="receipt-foot">Thank you for choosing ${escapeHTML(BIZ_NAME)}!</div>
     </div>
     <div class="modal-actions">
@@ -2232,7 +2296,8 @@ function openReceiptModal(id){
 }
 
 function receiptText(t){
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nPayment: ${t.paymentMode||"—"}`;
+  const balanceLine = t.invoiceStatus && t.invoiceStatus!=="Paid" ? `\nAmount Paid: ${peso(t.amountPaid||0)}\nBalance: ${peso(t.balance!=null?t.balance:t.fee)}` : "";
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}${balanceLine}\nPayment: ${t.paymentMode||"—"}`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
