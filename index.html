@@ -2000,7 +2000,11 @@ async function attemptLogin(){
   }catch(error){
     console.error("Firebase admin login error:", error);
 
-    let message = "Incorrect email or password.";
+    }catch(error){
+  console.error("Firebase admin login error:", error);
+
+  err.textContent = error.code + " — " + error.message;
+}
     if(error && error.code === "auth/too-many-requests"){
       message = "Too many login attempts. Please wait and try again.";
     }else if(error && error.code === "auth/network-request-failed"){
