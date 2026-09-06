@@ -1475,7 +1475,7 @@ function balanceAmount(t){
   return Math.max(0, Number(t.fee||0) - collectedAmount(t));
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
-const CUSTOMER_STATUS_BASE_URL = "https://gids-customer-status.vercel.app/";
+const CUSTOMER_STATUS_BASE_URL = "https://customer-gidsayphonetech.vercel.app/";
 function makeRepairStatusToken(){
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
   let token = "";
@@ -1828,11 +1828,9 @@ function finishStateMigration(){
     state.adminAccounts = existingAdmin ? [{username:existingAdmin.username, email:existingAdmin.email || ""}] : [];
     migrated = true;
   } else {
-    state.adminAccounts = state.adminAccounts.map(account=>({
-      username: account.username || account.email || "Admin",
-      email: account.email || ""
-    }));
+    state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   }
+  state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   if(state.admin && typeof state.admin === "object"){
     const cleanAdmin = {uid: state.admin.uid || "", email: state.admin.email || "", username: state.admin.username || ""};
     if(JSON.stringify(cleanAdmin) !== JSON.stringify(state.admin)){
@@ -1893,6 +1891,36 @@ function readLocal(){
 }
 function writeLocal(){
   try{ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }catch(e){ /* ignore quota errors */ }
+}
+
+function stableAdminDocId(account){
+  const source = String((account && (account.email || account.username)) || "admin").trim().toLowerCase();
+  let hash = 2166136261;
+  for(let i=0;i<source.length;i++){
+    hash ^= source.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `admin_${(hash >>> 0).toString(36)}`;
+}
+function normalizeAdminAccounts(accounts){
+  const input = Array.isArray(accounts) ? accounts : [];
+  const seen = new Set();
+  const out = [];
+  input.forEach(raw=>{
+    if(!raw || typeof raw !== "object") return;
+    const username = String(raw.username || raw.email || "Admin").trim();
+    const email = String(raw.email || "").trim().toLowerCase();
+    const key = email || `name:${username.toLowerCase()}`;
+    if(seen.has(key)) return;
+    seen.add(key);
+    out.push({
+      ...raw,
+      id: raw.id || stableAdminDocId({email, username}),
+      username,
+      email
+    });
+  });
+  return out;
 }
 function markDeleted(collection, id){
   if(!state.deletedRecords) state.deletedRecords = {};
@@ -2258,7 +2286,24 @@ async function syncOperationalCollections(){
       mirror("suppliers", state.suppliers);
       mirror("stockMovements", state.stockMovements);
       mirror("staffAccounts", state.staffAccounts);
-      mirror("adminAccounts", state.adminAccounts);
+
+      // Admin access profiles must have one stable document per Firebase email.
+      // Older versions could create duplicate admin profile documents; reconcile
+      // the whole branch here so stale duplicates are removed automatically.
+      state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
+      const desiredAdminIds = new Set();
+      state.adminAccounts.filter(a => a && (a.branchId || branchId) === branchId).forEach(account=>{
+        const id = account.id || stableAdminDocId(account);
+        account.id = id;
+        desiredAdminIds.add(id);
+        batch.set(db.collection("adminAccounts").doc(id), {...account, id, branchId}, {merge:true});
+      });
+      const adminSnap = await withTimeout(
+        db.collection("adminAccounts").where("branchId","==",branchId).get(), 10000
+      );
+      adminSnap.docs.forEach(doc=>{
+        if(!desiredAdminIds.has(doc.id)) batch.delete(doc.ref);
+      });
 
       // commissionRates is stored in app state as an object keyed by technician,
       // not an array. Mirror each rate as its own Firestore document.
@@ -2391,15 +2436,16 @@ async function loadStaffOperationalCollections(){
     const inventory = inventorySnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId}));
 
     // Staff gets operational jobs plus a read-only financial overlay.
-    // The sales collection is readable but not writable for edits/deletes.
-    if(jobs.length || sales.length){
-      const byId = new Map(jobs.map(j=>[j.id,j]));
-      sales.forEach(sale=>{
-        const old = byId.get(sale.id) || {};
-        byId.set(sale.id, {...old, ...sale});
-      });
-      state.transactions = [...byId.values()];
-    }
+    // These dedicated collections are authoritative for the active branch,
+    // including the empty state. If Admin deletes the last job, Staff must
+    // immediately become empty instead of keeping stale localStorage rows.
+    const byId = new Map(jobs.map(j=>[j.id,j]));
+    sales.forEach(sale=>{
+      const old = byId.get(sale.id) || {};
+      byId.set(sale.id, {...old, ...sale});
+    });
+    state.transactions = [...byId.values()];
+    state.transactions = state.transactions.filter(t => (t.branchId || branchId) === branchId);
     if(inventory.length) state.inventory = inventory;
     writeLocal();
     return true;
@@ -2555,7 +2601,11 @@ function rebuildAdminTransactionsFromRealtime(){
 }
 function rebuildStaffTransactionsFromRealtime(){
   if(!Array.isArray(realtimeStaffJobs)) return;
+  // A realtime empty jobs snapshot is authoritative: it must clear stale
+  // Staff-side records rather than leaving yesterday's local cache visible.
   state.transactions = mergeJobSales(realtimeStaffJobs, realtimeStaffSales || []);
+  const branchId = currentBranchId();
+  state.transactions = state.transactions.filter(t => (t.branchId || branchId) === branchId);
 }
 function mergeSalesIntoTransactions(sales){
   realtimeAdminSales = Array.isArray(sales) ? sales : [];
@@ -3388,6 +3438,7 @@ function renderStaffAccess(){
 function renderAdminAccess(){
   const body = document.getElementById("admin-access-body");
   if(!body || !session.isAdmin) return;
+  state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   const accounts = state.adminAccounts || [];
   body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
 }
@@ -3478,7 +3529,8 @@ function saveAdminAccount(oldUsername){
     const account = state.adminAccounts.find(item=>item.username===oldUsername);
     if(account) Object.assign(account,{username,email});
   } else {
-    state.adminAccounts.push({username,email});
+    state.adminAccounts.push({id:stableAdminDocId({email, username}), username, email, branchId:currentBranchId()});
+    state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   }
   if(oldUsername && oldUsername!==username){
     if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
@@ -4720,7 +4772,7 @@ function openReceiptModal(id){
       <div class="receipt-total-row">Amount Paid: <b>${peso(collectedAmount(t))}</b></div>
       <div class="receipt-total-row ${balanceAmount(t)>0 ? "balance-due" : ""}">Balance: <b>${peso(balanceAmount(t))}</b></div>
       <div class="receipt-warranty"><b>Warranty: 7 days</b> · Expires: <b>${escapeHTML(warrantyExpiryDate(t))}</b><br>Terms &amp; Conditions apply.</div>
-      <div style="margin-top:8px;padding-top:7px;border-top:1px solid #888;font-size:10.5px;color:#222 !important;">Repair status: <b>${escapeHTML(customerStatusUrl(t))}</b></div>
+      <div style="margin-top:8px;padding-top:7px;border-top:1px solid #888;font-size:10.5px;color:#222 !important;">Customer Tracking No: <b>${escapeHTML(repairStatusTokenOf(t))}</b><br>Customer Tracker: <b>${escapeHTML(CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, ""))}</b></div>
       <div class="receipt-foot">Thank you for choosing ${escapeHTML(BIZ_NAME)}!</div>
     </div>
     <div class="modal-actions">
@@ -4735,7 +4787,7 @@ function openReceiptModal(id){
 }
 
 function receiptText(t){
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nTerms & Conditions apply.`;
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nCustomer Tracking No: ${repairStatusTokenOf(t)}\nCustomer Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}\nTerms & Conditions apply.`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
@@ -4798,7 +4850,7 @@ function downloadReceiptPdf(id){
   const t = state.transactions.find(x=>x.id===id);
   if(!t) return;
   const { jsPDF } = window.jspdf;
-  const doc = new jsPDF({ unit:"pt", format:[227, 420] });
+  const doc = new jsPDF({ unit:"pt", format:[227, 455] });
   const midX = 113.5;
   let y = 20;
   const logo = gidsLogoDataUri();
@@ -4849,7 +4901,12 @@ function downloadReceiptPdf(id){
   doc.setFont("helvetica","bold"); doc.setFontSize(8);
   doc.text(`Warranty: 7 days  |  Expires: ${warrantyExpiryDate(t)}`, midX, y2, { align:"center" });
   y2 += 11;
+  doc.setFont("helvetica","bold"); doc.setFontSize(8);
+  doc.text(`Tracking No: ${repairStatusTokenOf(t)}`, midX, y2, { align:"center" });
+  y2 += 10;
   doc.setFont("helvetica","normal");
+  doc.text(`Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}`, midX, y2, { align:"center" });
+  y2 += 11;
   doc.text(`Terms & Conditions apply.`, midX, y2, { align:"center" });
   y2 += 14;
   doc.text(`Thank you for choosing ${BIZ_NAME}!`, midX, y2, { align:"center" });
