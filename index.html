@@ -4087,6 +4087,7 @@ async function saveTxn(id, isAdmin){
   const previous = id ? state.transactions.find(x=>x.id===id) : null;
   const previousItem = previous ? previous.itemUsed : null;
   const previousQty = previous ? Number(previous.quantity||1) : 0;
+  let savedJobId = id || null;
 
   if(itemUsed){
     const item = state.inventory.find(i=>i.id===itemUsed);
@@ -4106,6 +4107,7 @@ async function saveTxn(id, isAdmin){
     const seq = state.nextSeq || 1;
     state.nextSeq = seq + 1;
     const newId = uid();
+    savedJobId = newId;
     const staffCreated = session.staffUnlocked && !isAdmin;
     const serviceNo = staffCreated ? "SVC-" + String(Date.now()).slice(-8) : "SVC-" + String(seq).padStart(4,"0");
     const receiptNo = staffCreated ? "RCPT-" + String(Date.now()).slice(-8) : "RCPT-" + String(seq).padStart(4,"0");
@@ -4127,7 +4129,8 @@ async function saveTxn(id, isAdmin){
   adjustInventoryUsage(previousItem, itemUsed, previousQty, quantity);
   try{
     if(isAdmin){
-      const savedJob = state.transactions.find(x=>x.id === (id || newId));
+      const savedJob = state.transactions.find(x=>x.id === savedJobId);
+      if(!savedJob) throw new Error("Saved job could not be found locally after creation");
       const touchedInventory = [previousItem, itemUsed];
       await syncAdminJobTransaction(savedJob, touchedInventory);
       await syncAppMeta();
