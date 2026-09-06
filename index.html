@@ -3942,9 +3942,17 @@ function renderAttendance(){
   if(!select || !body || !status || !dateLabel) return;
   if(actionsHead) actionsHead.style.display = session.isAdmin ? "table-cell" : "none";
   const current = select.value;
-  const attendanceTechs = session.isAdmin ? TECHS : (session.staffTechnician ? [session.staffTechnician] : []);
-  select.innerHTML = attendanceTechs.map(tech=>`<option value="${escapeHTML(tech)}">${escapeHTML(tech)}</option>`).join("");
-  if(attendanceTechs.includes(current)) select.value = current;
+  // Keep the Staff dropdown synchronized with the same live technician
+  // directory shown to Admin. Staff may still act only on their own
+  // attendance record; other technicians are displayed but disabled.
+  const attendanceTechs = Array.isArray(TECHS) ? [...TECHS] : [];
+  const staffTech = String(session.staffTechnician || '').trim();
+  select.innerHTML = attendanceTechs.map(tech=>{
+    const disabled = !session.isAdmin && tech !== staffTech ? ' disabled' : '';
+    return `<option value="${escapeHTML(tech)}"${disabled}>${escapeHTML(tech)}${disabled ? ' — view only' : ''}</option>`;
+  }).join("");
+  if(!session.isAdmin && staffTech && attendanceTechs.includes(staffTech)) select.value = staffTech;
+  else if(attendanceTechs.includes(current)) select.value = current;
   else if(attendanceTechs.length) select.value = attendanceTechs[0];
   dateLabel.textContent = getToday().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
   const selectedRecord = attendanceForToday().find(record=>record.tech===select.value);
@@ -4031,6 +4039,10 @@ async function deleteAttendance(id){
 async function checkInTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
   if(!tech) return;
+  if(!session.isAdmin && tech !== session.staffTechnician){
+    showToast("Staff can only check in their own attendance");
+    return;
+  }
   const date = todayStr();
   const existing = state.attendance.find(record=>record.tech===tech && record.date===date);
   if(existing && existing.checkIn && !existing.checkOut){ showToast(`${tech} is already checked in`); return; }
@@ -4058,6 +4070,10 @@ async function checkInTechnician(){
 
 async function checkOutTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
+  if(!session.isAdmin && tech !== session.staffTechnician){
+    showToast("Staff can only check out their own attendance");
+    return;
+  }
   const record = attendanceForToday().find(item=>item.tech===tech && item.checkIn && !item.checkOut);
   if(!record){ showToast(`${tech || "Technician"} has no active shift`); return; }
   const previousCheckOut = record.checkOut;
