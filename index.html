@@ -2109,6 +2109,7 @@ async function createStaffJobInCollection(job){
     balance: Number(job.balance || 0),
     invoiceStatus: job.invoiceStatus || "",
     paymentMode: job.paymentMode || "",
+    clientTip: Number(job.clientTip || 0),
     createdByUid: user.uid
   };
 
@@ -2158,7 +2159,7 @@ async function syncAdminJobTransaction(job, inventoryIds=[]){
     serviceNo: job.serviceNo || "", receiptNo: job.receiptNo || "", tech: job.tech || "",
     customerName: job.customerName || "", fee: Number(job.fee || 0), amount: Number(job.amount || 0),
     amountPaid: Number(job.amountPaid || 0), balance: Number(job.balance || 0),
-    invoiceStatus: job.invoiceStatus || "", paymentMode: job.paymentMode || ""
+    invoiceStatus: job.invoiceStatus || "", paymentMode: job.paymentMode || "", clientTip: Number(job.clientTip || 0)
   };
 
   const batch = db.batch();
@@ -4564,6 +4565,7 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
     </div>
     <div class="field"><label>Total amount (₱) <span style="font-weight:400;color:var(--muted)">quantity × amount</span></label><input id="f-fee" type="number" min="0" value="${editing?editing.fee:0}" readonly style="background:var(--panel-2); font-weight:700;"></div>
     <div class="field"><label>Mode of payment</label><select id="f-payment"><option value="">Select payment…</option>${paymentOptions}</select></div>
+    <div class="field"><label>Client Tip (₱) <span style="font-weight:400;color:var(--muted)">internal only — not shown on receipt</span></label><input id="f-client-tip" type="number" min="0" step="0.01" placeholder="0" value="${editing&&editing.clientTip!=null?editing.clientTip:""}"></div>
     <div class="field"><label>Invoice status</label><select id="f-invoice-status" onchange="onInvoiceStatusChange()"><option value="Paid" ${!editing||editing.invoiceStatus==="Paid"?"selected":""}>Paid</option><option value="Unpaid" ${editing&&editing.invoiceStatus==="Unpaid"?"selected":""}>Unpaid</option><option value="Partial" ${editing&&editing.invoiceStatus==="Partial"?"selected":""}>Partial</option></select></div>
     <div class="field" id="f-partial-wrap" style="display:none;">
       <label>Amount paid (₱)</label>
@@ -4739,6 +4741,10 @@ async function saveTxn(id, isAdmin){
   const amount = Number(document.getElementById("f-amount").value || 0);
   const date = document.getElementById("f-date").value || todayStr();
   const paymentMode = document.getElementById("f-payment").value.trim();
+  const clientTipRaw = document.getElementById("f-client-tip").value.trim();
+  if(clientTipRaw === ""){ showToast("Client Tip is required"); return; }
+  const clientTip = Number(clientTipRaw);
+  if(!Number.isFinite(clientTip) || clientTip < 0){ showToast("Enter a valid Client Tip amount"); return; }
   recalcTotal();
   const fee = Number(document.getElementById("f-fee").value || 0);
   const branchEl = document.getElementById("f-branch");
@@ -4784,7 +4790,7 @@ async function saveTxn(id, isAdmin){
 
   if(id){
     const t = state.transactions.find(x=>x.id===id);
-    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, appointmentAt, jobStatus:normalizeJobStatus(jobStatus), invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode});
+    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, appointmentAt, jobStatus:normalizeJobStatus(jobStatus), invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode, clientTip});
     if(Object.prototype.hasOwnProperty.call(t,"customerEmail")) delete t.customerEmail;
   } else {
     // Real jobs use the persistent 3-digit sequence. Trial jobs are clearly
@@ -4806,7 +4812,7 @@ async function saveTxn(id, isAdmin){
         ? "RCPT-" + String(Date.now()).slice(-8)
         : "RCPT-" + String(seq).padStart(3,"0");
     if(!trialJob) state.nextSeq = seq + 1;
-    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
+    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, clientTip, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
     state.transactions.push(newJob);
     if(staffCreated){
       try{
