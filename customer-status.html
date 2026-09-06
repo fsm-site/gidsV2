@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#07111f">
+<meta name="description" content="GIDS AYPHONE TECH repair status tracker">
+<title>GIDS AYPHONE TECH — Repair Status</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;font-family:Inter,sans-serif;color:#eef7ff;background:radial-gradient(circle at 12% 8%,rgba(59,158,255,.2),transparent 28%),linear-gradient(145deg,#07111f,#0b1b31 55%,#07111f);display:flex;align-items:center;justify-content:center;padding:20px}
+.wrap{width:min(620px,100%)}
+.brand{text-align:center;margin-bottom:18px}.logo{width:58px;height:58px;margin:0 auto 10px;border-radius:14px;background:#fff;display:grid;place-items:center;box-shadow:0 8px 30px rgba(0,0,0,.28)}.logo:before{content:"G";font-family:Anton,sans-serif;font-size:34px;color:#123b67}.biz{font-family:Anton,sans-serif;font-size:24px;letter-spacing:.8px}.sub{color:#8fb2d5;font-size:12px;margin-top:3px}
+.card{background:rgba(10,28,50,.92);border:1px solid rgba(118,177,224,.28);border-radius:16px;padding:20px;box-shadow:0 20px 60px rgba(0,0,0,.32)}
+.label{font-size:11px;font-weight:800;letter-spacing:.5px;text-transform:uppercase;color:#8fb2d5;margin-bottom:7px}.search{display:flex;gap:8px}.search input{flex:1;min-width:0;padding:12px 13px;border-radius:9px;border:1px solid #3a6387;background:#0d2037;color:#fff;font-size:14px;outline:none}.search input:focus{border-color:#69b9f3}.btn{border:0;border-radius:9px;padding:11px 15px;background:linear-gradient(155deg,#84d0ff,#2378bd);color:#fff;font-weight:800;cursor:pointer}.btn:disabled{opacity:.6;cursor:default}
+.status{margin-top:18px}.status-pill{display:inline-block;padding:7px 11px;border-radius:999px;background:rgba(80,169,232,.14);border:1px solid rgba(105,185,243,.35);color:#8ed2ff;font-weight:800;font-size:12px}.status-title{font-family:Anton,sans-serif;font-size:32px;letter-spacing:.4px;margin:10px 0 3px}.updated{color:#8fa8c0;font-size:11px}.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:18px}.info{border:1px solid rgba(118,177,224,.18);background:rgba(255,255,255,.035);border-radius:10px;padding:12px}.value{font-weight:700;font-size:14px;margin-top:3px;word-break:break-word}.notice{margin-top:14px;padding:11px 12px;border-left:3px solid #5db8f3;background:rgba(93,184,243,.08);color:#b9d3e8;font-size:12px;line-height:1.5}.error,.empty{margin-top:14px;padding:12px;border-radius:9px;background:rgba(220,72,72,.12);border:1px solid rgba(255,100,100,.25);color:#ffd2d2;font-size:12px}.empty{background:rgba(255,255,255,.04);border-color:rgba(118,177,224,.18);color:#b9cce0}.footer{text-align:center;color:#647f9c;font-size:10px;margin-top:14px}
+@media(max-width:520px){body{padding:12px}.card{padding:15px}.search{flex-direction:column}.btn{width:100%}.grid{grid-template-columns:1fr}.status-title{font-size:28px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <div class="logo" aria-hidden="true"></div>
+    <div class="biz">GIDS AYPHONE TECH</div>
+    <div class="sub">Customer Repair Status</div>
+  </div>
+  <div class="card">
+    <div class="label">Repair tracking code</div>
+    <div class="search">
+      <input id="token" autocomplete="off" autocapitalize="characters" placeholder="e.g. GID-7X4K9P2" aria-label="Repair tracking code">
+      <button class="btn" id="checkBtn" type="button">Check status</button>
+    </div>
+    <div id="result" aria-live="polite"><div class="empty">Enter the tracking code printed on your receipt.</div></div>
+  </div>
+  <div class="footer">GIDS AYPHONE TECH · This page only shows the repair status linked to your tracking code.</div>
+</div>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+const firebaseConfig={
+  apiKey:"AIzaSyA9nAVx2DGi25MqJjYscdvD6RlU3DAD0aU",
+  authDomain:"gidsv2.firebaseapp.com",
+  projectId:"gidsv2",
+  storageBucket:"gidsv2.firebasestorage.app",
+  messagingSenderId:"13224945414",
+  appId:"1:13224945414:web:643c92de50d86a0efde087",
+  measurementId:"G-M5SB0HPX5C"
+};
+firebase.initializeApp(firebaseConfig);
+const db=firebase.firestore();
+let unsubscribe=null;
+const result=document.getElementById("result");
+const input=document.getElementById("token");
+const btn=document.getElementById("checkBtn");
+function esc(v){return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[m]));}
+function fmtDate(value){
+  if(!value) return "—";
+  if(value.toDate) value=value.toDate();
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?"—":d.toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function fmtDateOnly(value){
+  if(!value) return "—";
+  const d=new Date(value);
+  return Number.isNaN(d.getTime())?"—":d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
+function showError(msg){result.innerHTML=`<div class="error">${esc(msg)}</div>`;}
+function showRecord(data){
+  const status=data.status||"New";
+  const statusClass=["Completed","Ready for pickup"].includes(status)?"background:rgba(45,190,126,.14);border-color:rgba(45,190,126,.35);color:#86e4bd":"";
+  result.innerHTML=`
+    <div class="status">
+      <span class="status-pill" style="${statusClass}">${esc(status)}</span>
+      <div class="status-title">${esc(status)}</div>
+      <div class="updated">Last updated: ${esc(fmtDate(data.updatedAt))}</div>
+    </div>
+    <div class="grid">
+      <div class="info"><div class="label">Service No.</div><div class="value">${esc(data.serviceNo||"—")}</div></div>
+      <div class="info"><div class="label">Branch</div><div class="value">${esc(data.branch||"—")}</div></div>
+      <div class="info"><div class="label">Device</div><div class="value">${esc(data.device||"—")}</div></div>
+      <div class="info"><div class="label">Service</div><div class="value">${esc(data.serviceType||"—")}</div></div>
+      <div class="info"><div class="label">Received</div><div class="value">${esc(fmtDate(data.encodedAt))}</div></div>
+      <div class="info"><div class="label">Appointment</div><div class="value">${esc(fmtDate(data.appointmentAt))}</div></div>
+    </div>
+    ${data.description?`<div class="notice"><b>Service details</b><br>${esc(data.description)}</div>`:""}
+    ${data.estimatedCompletion?`<div class="notice"><b>Estimated completion</b><br>${esc(fmtDateOnly(data.estimatedCompletion))}</div>`:""}
+    <div class="notice">For questions or pickup instructions, please contact GIDS AYPHONE TECH.</div>`;
+}
+async function check(){
+  const token=input.value.trim().toUpperCase();
+  if(!token){showError("Please enter your repair tracking code.");return;}
+  if(unsubscribe){unsubscribe();unsubscribe=null;}
+  btn.disabled=true; btn.textContent="Checking…";
+  try{
+    const snap=await db.collection("repairStatusPublic").doc(token).get();
+    if(!snap.exists){showError("No repair status was found for that tracking code. Please check the code on your receipt.");return;}
+    showRecord({id:snap.id,...snap.data()});
+    unsubscribe=db.collection("repairStatusPublic").doc(token).onSnapshot(s=>{
+      if(s.exists) showRecord({id:s.id,...s.data()});
+    },e=>console.error("Status realtime listener failed",e));
+  }catch(e){
+    console.error(e);
+    showError("We couldn't load the repair status right now. Please try again.");
+  }finally{btn.disabled=false;btn.textContent="Check status";}
+}
+btn.addEventListener("click",check);
+input.addEventListener("keydown",e=>{if(e.key==="Enter")check();});
+const urlToken=new URLSearchParams(location.search).get("token");
+if(urlToken){input.value=urlToken;check();}
+</script>
+</body>
+</html>
