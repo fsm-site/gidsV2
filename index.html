@@ -2099,9 +2099,10 @@ function currentBranchId(){
 }
 
 async function syncStaffAttendanceOnly(){
-  const user = firebase.auth().currentUser;
-  if(!user || user.isAnonymous || !session.staffUnlocked || session.isAdmin) return;
-  await syncAttendanceToCollection();
+  // Staff attendance is written directly by check-in/check-out. Do not merge
+  // local attendance back into Firestore here: an old local record could have
+  // been deleted by Admin and this generic save path would otherwise resurrect it.
+  return;
 }
 
 async function createStaffJobInCollection(job){
@@ -2611,7 +2612,9 @@ async function loadStaffCollections(){
       withTimeout(db.collection("staffAccounts").where("email","==",(user.email || "").trim().toLowerCase()).get(), 10000)
     ]);
     const profiles = profilesSnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId}));
-    if(profiles.length) state.staffProfiles = profiles;
+    // Cloud is authoritative. An empty result is meaningful and must clear
+    // stale local profiles instead of allowing removed profiles to reappear.
+    state.staffProfiles = profiles;
     const accounts = accountSnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId, email:(doc.data()?.email || user.email || "").trim().toLowerCase()}));
     if(accounts.length){
       const byId = new Map((state.staffAccounts || []).map(a=>[a.id,a]));
@@ -2707,11 +2710,11 @@ async function loadPublicStaffProfiles(){
       withTimeout(db.collection("staffPublic").where("branchId","==",branchId).get(), 10000)
     ));
     const profiles = results.flatMap(snap => snap.docs.map(doc => ({id:doc.id, ...doc.data()})));
-    if(profiles.length){
-      state.staffProfiles = profiles;
-      writeLocal();
-      renderStaffDirectory();
-    }
+    // Public directory is also authoritative, including an intentionally empty
+    // result. Never retain stale local profiles after Admin removes them.
+    state.staffProfiles = profiles;
+    writeLocal();
+    renderStaffDirectory();
   }catch(e){
     console.error("Could not load public staff profiles:", e);
   }
@@ -4028,7 +4031,7 @@ async function deleteAttendance(id){
   }
 }
 
-function checkInTechnician(){
+async function checkInTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
   if(!tech) return;
   const date = todayStr();
@@ -4038,22 +4041,49 @@ function checkInTechnician(){
   const user = firebase.auth().currentUser;
   const record = {id:uid(), uid:user && !user.isAnonymous ? user.uid : "", branchId:currentBranchId(), tech, date, checkIn:new Date().toISOString(), checkOut:""};
   state.attendance.push(record);
-  saveState();
+  writeLocal();
   renderAttendance();
-  showToast(`${tech} checked in`);
+  try{
+    if(user && !user.isAnonymous){
+      await withTimeout(db.collection("attendance").doc(record.id).set(record, {merge:true}), 10000);
+      showToast(`${tech} checked in`);
+    }else{
+      showToast(`${tech} checked in`);
+    }
+  }catch(e){
+    state.attendance = state.attendance.filter(item=>item.id!==record.id);
+    writeLocal();
+    renderAttendance();
+    console.error("Staff check-in sync failed:",e);
+    showToast("Check-in failed — cloud record was not saved");
+  }
 }
 
-function checkOutTechnician(){
+async function checkOutTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
   const record = attendanceForToday().find(item=>item.tech===tech && item.checkIn && !item.checkOut);
   if(!record){ showToast(`${tech || "Technician"} has no active shift`); return; }
+  const previousCheckOut = record.checkOut;
   record.checkOut = new Date().toISOString();
   record.branchId = record.branchId || currentBranchId();
   const user = firebase.auth().currentUser;
   record.uid = record.uid || (user && !user.isAnonymous ? user.uid : "");
-  saveState();
+  writeLocal();
   renderAttendance();
-  showToast(`${tech} checked out`);
+  try{
+    if(user && !user.isAnonymous){
+      await withTimeout(db.collection("attendance").doc(record.id).set(record, {merge:true}), 10000);
+      showToast(`${tech} checked out`);
+    }else{
+      showToast(`${tech} checked out`);
+    }
+  }catch(e){
+    record.checkOut = previousCheckOut;
+    writeLocal();
+    renderAttendance();
+    console.error("Staff check-out sync failed:",e);
+    showToast("Check-out failed — cloud record was not updated");
+  }
 }
 
 function renderStaffDirectory(){
@@ -4116,32 +4146,57 @@ function handleStaffPhoto(file){
   reader.readAsDataURL(file);
 }
 
-function saveStaffProfile(id){
+async function saveStaffProfile(id){
   if(!session.isAdmin) return;
   const name = document.getElementById("staff-name").value.trim();
   const position = document.getElementById("staff-position").value.trim();
   const error = document.getElementById("staff-profile-error");
   if(!name || !position || !window.pendingStaffImage){ error.textContent = "Add a name, position and photo."; return; }
-  if(id){
-    const profile = state.staffProfiles.find(item=>item.id===id);
-    if(profile) Object.assign(profile, {name, position, image:window.pendingStaffImage, branchId: profile.branchId || currentBranchId()});
-  }else{
-    state.staffProfiles.push({id:uid(), name, position, image:window.pendingStaffImage, branchId:currentBranchId()});
+  const branchId = currentBranchId();
+  const profile = id
+    ? {...(state.staffProfiles.find(item=>item.id===id) || {id}), id, name, position, image:window.pendingStaffImage, branchId: branchId}
+    : {id:uid(), name, position, image:window.pendingStaffImage, branchId};
+  try{
+    const batch = db.batch();
+    batch.set(db.collection("staffProfiles").doc(profile.id), profile, {merge:true});
+    batch.set(db.collection("staffPublic").doc(profile.id), {
+      id: profile.id, branchId, name: profile.name || "", position: profile.position || "", image: profile.image || ""
+    }, {merge:true});
+    await withTimeout(batch.commit(), 10000);
+    state.staffProfiles = [...(state.staffProfiles || []).filter(item=>item.id!==profile.id), profile];
+    if(state.deletedRecords?.staffProfiles) state.deletedRecords.staffProfiles = state.deletedRecords.staffProfiles.filter(x=>x!==profile.id);
+    writeLocal();
+    window.pendingStaffImage = "";
+    closeOverlay();
+    renderStaffDirectory();
+    showToast(id ? "Staff profile updated and synced" : "Staff member added and synced");
+  }catch(e){
+    console.error("Staff profile sync failed:",e);
+    error.textContent = "Could not sync this staff profile to the cloud.";
   }
-  window.pendingStaffImage = "";
-  saveState();
-  closeOverlay();
-  renderStaffDirectory();
-  showToast(id ? "Staff profile updated" : "Staff member added");
 }
 
-function deleteStaffProfile(id){
+async function deleteStaffProfile(id){
   if(!session.isAdmin || !confirm("Remove this staff profile?")) return;
-  state.staffProfiles = state.staffProfiles.filter(profile=>profile.id!==id);
+  const existing = (state.staffProfiles || []).find(profile=>profile.id===id);
+  state.staffProfiles = (state.staffProfiles || []).filter(profile=>profile.id!==id);
   markDeleted("staffProfiles", id);
-  saveState();
   renderStaffDirectory();
-  showToast("Staff profile removed");
+  try{
+    const batch = db.batch();
+    batch.delete(db.collection("staffProfiles").doc(id));
+    batch.delete(db.collection("staffPublic").doc(id));
+    await withTimeout(batch.commit(), 10000);
+    writeLocal();
+    showToast("Staff profile removed and synced");
+  }catch(e){
+    console.error("Staff profile deletion sync failed:",e);
+    if(existing) state.staffProfiles.push(existing);
+    state.deletedRecords.staffProfiles = (state.deletedRecords.staffProfiles || []).filter(x=>x!==id);
+    writeLocal();
+    renderStaffDirectory();
+    showToast("Staff profile removal failed — cloud record was kept");
+  }
 }
 
 /* Labor summary — grouped by "Name of labor", auto-calculated from logged Labor jobs across all branches */
