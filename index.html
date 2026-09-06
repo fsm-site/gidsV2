@@ -2199,22 +2199,33 @@ async function loadAdminCollections(){
   if(!user || user.isAnonymous || !session.isAdmin) return false;
   const branchId = currentBranchId();
   try{
+    const collectionNames = ["jobs","salesPrivate","staffProfiles","suppliers","stockMovements","staffAccounts","adminAccounts","purchaseOrders","commissionRates","inventoryPrivate"];
     const readBranch = async (name) => {
       const snap = await withTimeout(db.collection(name).where("branchId","==",branchId).get(), 10000);
       return snap.docs.map(doc=>({id:doc.id, ...doc.data()}));
     };
-    const [jobs, salesPrivate, staffProfiles, suppliers, stockMovements, staffAccounts, adminAccounts, purchaseOrders, commissionDocs, inventoryPrivate] = await Promise.all([
-      readBranch("jobs"),
-      readBranch("salesPrivate"),
-      readBranch("staffProfiles"),
-      readBranch("suppliers"),
-      readBranch("stockMovements"),
-      readBranch("staffAccounts"),
-      readBranch("adminAccounts"),
-      readBranch("purchaseOrders"),
-      readBranch("commissionRates"),
-      readBranch("inventoryPrivate")
-    ]);
+    // Read each collection independently so one denied/failed read (e.g. a
+    // Firestore rules mismatch on a single collection) doesn't silently wipe
+    // out every other collection's data via a single rejected Promise.all.
+    const settled = await Promise.allSettled(collectionNames.map(readBranch));
+    const failures = [];
+    const results = {};
+    settled.forEach((r, i)=>{
+      const name = collectionNames[i];
+      if(r.status === "fulfilled"){
+        results[name] = r.value;
+      }else{
+        results[name] = [];
+        failures.push({name, error: r.reason});
+      }
+    });
+    if(failures.length){
+      failures.forEach(f=>{
+        console.error(`Admin collection load failed for "${f.name}":`, f.error?.code || f.error?.message || f.error);
+      });
+      showToast(`Couldn't load: ${failures.map(f=>f.name).join(", ")} (check console)`);
+    }
+    const {jobs, salesPrivate, staffProfiles, suppliers, stockMovements, staffAccounts, adminAccounts, purchaseOrders, commissionRates: commissionDocs, inventoryPrivate} = results;
 
     // Dedicated collections are the Admin source. Empty collections remain empty;
     // no legacy app-data fallback is used.
@@ -2855,10 +2866,20 @@ async function attemptStaffLogin(){
       return;
     }
 
+    // Temporarily unlock the Staff context so loadStaffCollections() is
+    // allowed to fetch this user's own email-scoped staffAccounts record.
+    // Real access control still comes from Firestore rules (request.auth),
+    // not this client-side flag; if no matching account is found below,
+    // the unlock is rolled back and the user is signed out.
+    session.staffUnlocked = true;
+    session.isAdmin = false;
+    await loadStaffCollections();
+
     const account = (state.staffAccounts || []).find(item=>
       (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
     );
     if(!account){
+      session.staffUnlocked = false;
       await firebase.auth().signOut();
       err.textContent = "This staff email has not been assigned in the app yet.";
       return;
@@ -2866,16 +2887,14 @@ async function attemptStaffLogin(){
 
     await loadSubscription();
     if(!subscriptionIsActive()){
+      session.staffUnlocked = false;
       applySubscriptionAccess();
       err.textContent = "Access is currently suspended. Please contact the system administrator.";
       return;
     }
 
-    session.staffUnlocked = true;
-    session.isAdmin = false;
     session.staffUsername = account.username || user.email;
     session.staffTechnician = account.technician;
-    await loadStaffCollections();
     await loadStaffOperationalCollections();
     await loadAttendanceFromCollection();
     updateNavForRole("staff");
