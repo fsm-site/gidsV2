@@ -1996,6 +1996,22 @@ async function syncAdminJobTransaction(job, inventoryIds=[]){
     batch.set(db.collection("inventoryPublic").doc(item.id), publicRecord, {merge:true});
   });
 
+  // Persist the sequence/metadata in the same atomic write as the new job.
+  // This avoids a second cloud write being able to fail after the job itself
+  // has already committed.
+  batch.set(appMetaRef, {
+    businessId: "gids-tech", version: 1,
+    branchConfig: state.branchConfig || BRANCH_CONFIG,
+    branch: state.branch || DEFAULT_BRANCH,
+    nextSeq: Number(state.nextSeq || 1),
+    technicians: Array.isArray(state.technicians) ? state.technicians : [],
+    deletedRecords: state.deletedRecords || {},
+    removedTechnicians: Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
+    removedAdminUsernames: Array.isArray(state.removedAdminUsernames) ? state.removedAdminUsernames : [],
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedByUid: user.uid, branchId
+  }, {merge:true});
+
   await withTimeout(batch.commit(), 10000);
 }
 
@@ -2112,6 +2128,20 @@ async function syncOperationalCollections(){
     // Admin may continue mirroring the full staff profile set during migration.
     if(role === "admin"){
       mirror("staffProfiles", state.staffProfiles);
+
+      // Public staff directory mirror. This collection contains only the
+      // intentionally public profile fields and is readable without login.
+      (state.staffProfiles || []).filter(p => p && (p.branchId || branchId) === branchId).forEach(profile => {
+        const publicProfile = {
+          id: profile.id,
+          branchId,
+          name: profile.name || "",
+          position: profile.position || "",
+          image: profile.image || ""
+        };
+        batch.set(db.collection("staffPublic").doc(profile.id), publicProfile, {merge:true});
+      });
+
       mirror("inventoryPrivate", state.inventory);
       mirror("suppliers", state.suppliers);
       mirror("stockMovements", state.stockMovements);
@@ -2354,6 +2384,24 @@ async function saveState(){
   }
 }
 
+async function loadPublicStaffProfiles(){
+  try{
+    const branchIds = activeBranches().map(branchIdForName).filter(Boolean);
+    if(!branchIds.length) return;
+    const results = await Promise.all(branchIds.map(branchId =>
+      withTimeout(db.collection("staffPublic").where("branchId","==",branchId).get(), 10000)
+    ));
+    const profiles = results.flatMap(snap => snap.docs.map(doc => ({id:doc.id, ...doc.data()})));
+    if(profiles.length){
+      state.staffProfiles = profiles;
+      writeLocal();
+      renderStaffDirectory();
+    }
+  }catch(e){
+    console.error("Could not load public staff profiles:", e);
+  }
+}
+
 /* ======================= INIT ======================= */
 async function init(){
   document.getElementById("today-label").textContent = getToday().toLocaleDateString(undefined,{weekday:'short', year:'numeric', month:'short', day:'numeric'});
@@ -2364,6 +2412,7 @@ async function init(){
     if(heroWatermark) heroWatermark.src = splashImage.src;
   }
   await loadState();
+  await loadPublicStaffProfiles();
   const restoredView = restoreBrowserSession();
   const restoredRole = await restoreAuthenticatedSession();
   if(restoredRole){ await loadSubscription(); }
@@ -4133,13 +4182,13 @@ async function saveTxn(id, isAdmin){
       if(!savedJob) throw new Error("Saved job could not be found locally after creation");
       const touchedInventory = [previousItem, itemUsed];
       await syncAdminJobTransaction(savedJob, touchedInventory);
-      await syncAppMeta();
     }else{
       await saveState();
     }
   }catch(e){
     console.error("Job cloud sync failed:", e);
-    showToast(`Saved locally, but cloud save failed${e?.code ? ` (${e.code})` : ""}`);
+    const detail = e?.code || e?.message || "unknown error";
+    showToast(`Cloud save failed: ${detail}`);
     return;
   }
   closeOverlay();
