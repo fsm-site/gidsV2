@@ -680,6 +680,7 @@
     #stock-movements-body td:nth-child(3)::before{ content:"Type"; }
     #stock-movements-body td:nth-child(4)::before{ content:"Qty"; }
     #stock-movements-body td:nth-child(5)::before{ content:"Reference"; }
+    #stock-movements-body td:nth-child(6)::before{ content:"Actions"; }
     #appointments-body td:nth-child(1)::before{ content:"Appointment"; }
     #appointments-body td:nth-child(2)::before{ content:"Customer"; }
     #appointments-body td:nth-child(3)::before{ content:"Phone"; }
@@ -1178,7 +1179,7 @@
             </div>
             <div class="panel">
               <div class="panel-head"><div><h3>Recent stock movements</h3><div class="desc">Purchases, adjustments and job usage</div></div></div>
-              <table><thead><tr><th>Date</th><th>Item</th><th>Type</th><th>Qty</th><th>Reference</th></tr></thead><tbody id="stock-movements-body"></tbody></table>
+              <table><thead><tr><th>Date</th><th>Item</th><th>Type</th><th>Qty</th><th>Reference</th><th style="text-align:right">Actions</th></tr></thead><tbody id="stock-movements-body"></tbody></table>
             </div>
           </div>
 
@@ -1630,7 +1631,7 @@ function defaultState(){
     commissionRates:{},
     attendance:[],
     staffAccounts:[],
-    deletedRecords:{transactions:[], inventory:[], suppliers:[], staffProfiles:[], attendance:[], staffAccounts:[]},
+    deletedRecords:{transactions:[], inventory:[], suppliers:[], stockMovements:[], staffProfiles:[], attendance:[], staffAccounts:[]},
     removedTechnicians:[],
     removedAdminUsernames:[]
   };
@@ -1846,6 +1847,11 @@ function finishStateMigration(){
     state.nextSeq = (state.transactions ? state.transactions.length : 0) + 1;
     migrated = true;
   }
+  if(!state.numberingResetKey){
+    state.numberingResetKey = "trial-numbering-reset-20260906";
+    state.nextSeq = 1;
+    migrated = true;
+  }
   if(!Array.isArray(state.suppliers)){ state.suppliers = []; migrated = true; }
   if(!Array.isArray(state.stockMovements)){ state.stockMovements = []; migrated = true; }
   if(!Array.isArray(state.staffProfiles)){ state.staffProfiles = []; migrated = true; }
@@ -1856,7 +1862,7 @@ function finishStateMigration(){
   state.staffProfiles = state.staffProfiles.map(p=>({...p, branchId:p.branchId || migrationBranchId}));
   state.staffAccounts = state.staffAccounts.map(a=>({...a, branchId:a.branchId || migrationBranchId, email:(a.email||"").trim().toLowerCase()}));
   if(!state.deletedRecords || typeof state.deletedRecords !== "object"){ state.deletedRecords = {}; migrated = true; }
-  ["transactions","inventory","suppliers","staffProfiles","attendance","staffAccounts"].forEach(key=>{
+  ["transactions","inventory","suppliers","stockMovements","staffProfiles","attendance","staffAccounts"].forEach(key=>{
     if(!Array.isArray(state.deletedRecords[key])){ state.deletedRecords[key] = []; migrated = true; }
   });
   if(!Array.isArray(state.removedTechnicians)){ state.removedTechnicians = []; migrated = true; }
@@ -1965,7 +1971,7 @@ function mergeStates(cloud, local){
   merged.staffAccounts = mergeArrayByKey(cloud.staffAccounts, local.staffAccounts, a=>a.id);
   merged.adminAccounts = mergeArrayByKey(cloud.adminAccounts, local.adminAccounts, a=>a.username);
   merged.deletedRecords = {};
-  ["transactions","inventory","suppliers","staffProfiles","attendance","staffAccounts"].forEach(collection=>{
+  ["transactions","inventory","suppliers","stockMovements","staffProfiles","attendance","staffAccounts"].forEach(collection=>{
     merged.deletedRecords[collection] = Array.from(new Set([
       ...((cloud.deletedRecords||{})[collection] || []),
       ...((local.deletedRecords||{})[collection] || [])
@@ -1998,14 +2004,44 @@ async function syncAttendanceToCollection(){
   const isStaff = session.staffUnlocked;
   try{
     const batch = db.batch();
-    (state.attendance || []).filter(record => {
+    const allowed = (state.attendance || []).filter(record => {
       if(!record || (record.branchId || branchId) !== branchId) return false;
       if(isAdmin) return true;
       return isStaff && record.uid === user.uid && record.tech === session.staffTechnician;
-    }).forEach(record=>{
+    });
+
+    // Firestore is authoritative for attendance. For Admin, reconcile the
+    // entire active branch, including deletions. For Staff, reconcile only
+    // the signed-in user's records. This prevents stale cloud attendance
+    // from surviving after an Admin removes it.
+    let cloudSnap;
+    if(isAdmin){
+      cloudSnap = await withTimeout(
+        db.collection("attendance").where("branchId","==",branchId).get(), 10000
+      );
+    }else if(isStaff){
+      cloudSnap = await withTimeout(
+        db.collection("attendance").where("uid","==",user.uid).get(), 10000
+      );
+    }else{
+      return;
+    }
+
+    const allowedIds = new Set(allowed.map(record=>String(record.id)));
+    cloudSnap.docs.forEach(doc=>{
+      const data = doc.data() || {};
+      const sameBranch = (data.branchId || branchId) === branchId;
+      const sameUser = data.uid === user.uid;
+      if(sameBranch && (isAdmin || (isStaff && sameUser)) && !allowedIds.has(doc.id)){
+        batch.delete(doc.ref);
+      }
+    });
+
+    allowed.forEach(record=>{
       const ref = db.collection("attendance").doc(record.id);
       batch.set(ref, {...record, branchId}, {merge:true});
     });
+
     await withTimeout(batch.commit(), 10000);
   }catch(e){ console.error("Attendance collection sync failed:", e); }
 }
@@ -2131,6 +2167,7 @@ async function syncAdminJobTransaction(job, inventoryIds=[]){
     branchConfig: state.branchConfig || BRANCH_CONFIG,
     branch: state.branch || DEFAULT_BRANCH,
     nextSeq: Number(state.nextSeq || 1),
+    numberingResetKey: state.numberingResetKey || "trial-numbering-reset-20260906",
     technicians: Array.isArray(state.technicians) ? state.technicians : [],
     deletedRecords: state.deletedRecords || {},
     removedTechnicians: Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
@@ -2152,6 +2189,7 @@ async function syncAppMeta(){
     branchConfig: state.branchConfig || BRANCH_CONFIG,
     branch: state.branch || DEFAULT_BRANCH,
     nextSeq: Number(state.nextSeq || 1),
+    numberingResetKey: state.numberingResetKey || "trial-numbering-reset-20260906",
     technicians: Array.isArray(state.technicians) ? state.technicians : [],
     deletedRecords: state.deletedRecords || {},
     removedTechnicians: Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
@@ -2168,6 +2206,14 @@ async function loadAppMeta(){
     const snap = await withTimeout(appMetaRef.get(), 10000);
     if(!snap.exists) return false;
     const meta = snap.data() || {};
+    // Testing checkpoint: reset real Service/Receipt numbering to 001 once.
+    // Trial jobs never consume this sequence. After this marker is written,
+    // normal production numbering continues persistently from the next value.
+    const NUMBERING_RESET_KEY = "trial-numbering-reset-20260906";
+    if(meta.numberingResetKey !== NUMBERING_RESET_KEY){
+      state.nextSeq = 1;
+      state.numberingResetKey = NUMBERING_RESET_KEY;
+    }
     if(meta.branchConfig) state.branchConfig = meta.branchConfig;
     if(meta.branch) state.branch = meta.branch;
     if(Number(meta.nextSeq) > 0) state.nextSeq = Number(meta.nextSeq);
@@ -2251,6 +2297,7 @@ async function syncOperationalCollections(){
     // job. Do NOT query repairStatusPublic here: its Firestore list permission
     // is intentionally denied to prevent collection enumeration.
     deleteMirrors("inventory", ["inventoryPrivate", "inventoryPublic"]);
+    deleteMirrors("stockMovements", ["stockMovements"]);
     deleteMirrors("suppliers", ["suppliers"]);
     deleteMirrors("staffProfiles", ["staffProfiles"]);
     deleteMirrors("attendance", ["attendance"]);
@@ -3737,9 +3784,9 @@ async function deleteAttendance(id){
   const user = firebase.auth().currentUser;
   try{
     if(user && !user.isAnonymous){
-      await withTimeout(db.collection("attendance").doc(id).delete(), 10000);
-      // Persist the tombstone so a later cloud sync cannot resurrect the
-      // deleted attendance record from another cached copy.
+      // Reconcile the whole active branch so cloud attendance cannot retain
+      // a record that Admin has removed locally.
+      await syncAttendanceToCollection();
       await syncAppMeta();
     }
     writeLocal();
@@ -4087,8 +4134,50 @@ function renderStockMovements(){
   const body=document.getElementById("stock-movements-body");
   if(!body) return;
   const rows=(state.stockMovements||[]).slice(0,25);
-  body.innerHTML=rows.length ? rows.map(m=>`<tr><td>${escapeHTML(m.date)}</td><td>${escapeHTML(m.itemName||itemNameById(m.itemId))}</td><td>${escapeHTML(m.type)}</td><td>${Number(m.qty)>0?"+":""}${m.qty}</td><td>${escapeHTML(m.reference||"—")}</td></tr>`).join("") :
-    `<tr class="empty-row"><td colspan="5">No stock movements recorded yet.</td></tr>`;
+  body.innerHTML=rows.length ? rows.map(m=>`<tr>
+    <td>${escapeHTML(m.date)}</td>
+    <td>${escapeHTML(m.itemName||itemNameById(m.itemId))}</td>
+    <td>${escapeHTML(m.type)}</td>
+    <td>${Number(m.qty)>0?"+":""}${m.qty}</td>
+    <td>${escapeHTML(m.reference||"—")}</td>
+    <td style="text-align:right"><div class="row-actions" style="justify-content:flex-end;">
+      <button class="del" onclick="deleteStockMovement('${escapeHTML(m.id)}')" title="Delete movement">${deleteIconSVG()}</button>
+    </div></td>
+  </tr>`).join("") :
+    `<tr class="empty-row"><td colspan="6">No stock movements recorded yet.</td></tr>`;
+}
+
+async function deleteStockMovement(id){
+  if(!session.isAdmin || !id || !confirm("Delete this stock movement? This only removes the history entry and does not change inventory quantity.")) return;
+  state.stockMovements = (state.stockMovements || []).filter(m=>m.id!==id);
+  markDeleted("stockMovements", id);
+  renderAll();
+  try{
+    const user = firebase.auth().currentUser;
+    if(user && !user.isAnonymous){
+      const batch = db.batch();
+      batch.delete(db.collection("stockMovements").doc(id));
+      batch.set(appMetaRef, {
+        businessId:"gids-tech", version:1,
+        branchConfig:state.branchConfig || BRANCH_CONFIG,
+        branch:state.branch || DEFAULT_BRANCH,
+        nextSeq:Number(state.nextSeq || 1),
+        numberingResetKey:state.numberingResetKey || "trial-numbering-reset-20260906",
+        technicians:Array.isArray(state.technicians) ? state.technicians : [],
+        deletedRecords:state.deletedRecords || {},
+        removedTechnicians:Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
+        removedAdminUsernames:Array.isArray(state.removedAdminUsernames) ? state.removedAdminUsernames : [],
+        updatedAt:firebase.firestore.FieldValue.serverTimestamp(),
+        updatedByUid:user.uid, branchId:currentBranchId()
+      }, {merge:true});
+      await withTimeout(batch.commit(),10000);
+    }
+    writeLocal();
+    showToast("Stock movement deleted");
+  }catch(e){
+    console.error("Stock movement delete failed:",e);
+    showToast("Deleted locally, but cloud deletion failed");
+  }
 }
 
 function renderOperations(){
@@ -4313,16 +4402,16 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   const paymentOptions = PAYMENT_MODES.map(p=>`<option value="${p}" ${editing&&editing.paymentMode===p?"selected":""}>${p}</option>`).join("");
   const dateValue = editing ? editing.date : todayStr();
   const previewSeq = state.nextSeq || 1;
-  const serviceNoDisplay = editing ? (editing.serviceNo || serviceNoOf(editing)) : ("SVC-" + String(previewSeq).padStart(4,"0"));
-  const receiptNoDisplay = editing ? (editing.receiptNo || receiptNoOf(editing)) : ("RCPT-" + String(previewSeq).padStart(4,"0"));
+  const serviceNoDisplay = editing ? (editing.serviceNo || serviceNoOf(editing)) : ("SVC-" + String(previewSeq).padStart(3,"0"));
+  const receiptNoDisplay = editing ? (editing.receiptNo || receiptNoOf(editing)) : ("RCPT-" + String(previewSeq).padStart(3,"0"));
   openOverlay(`
     <h3>${editing? "Edit job" : "Add job"}</h3>
     <div class="sub">${editing? "Update the details of this logged job." : "Log a repair, service or sale."}</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div class="field"><label>Date <span style="font-weight:400;color:var(--muted)">auto-filled</span></label><input id="f-date" type="date" value="${dateValue}"></div>
-      <div class="field"><label>Service No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${serviceNoDisplay}</div></div>
+      <div class="field"><label>Service No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div id="service-no-preview" style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${serviceNoDisplay}</div></div>
     </div>
-    <div class="field"><label>Receipt No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${receiptNoDisplay}</div></div>
+    <div class="field"><label>Receipt No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div id="receipt-no-preview" style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${receiptNoDisplay}</div></div>
     ${isAdmin ? `<div class="field"><label>Branch</label><select id="f-branch">${branchOptions}</select></div>` : ""}
     <div class="field"><label>Name of customer</label><input id="f-customer" placeholder="Walk-in customer" value="${editing&&editing.customerName?escapeHTML(editing.customerName):""}"></div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
@@ -4370,6 +4459,12 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   `);
   const jobModal = document.getElementById("modal-body");
   jobModal.classList.add("job-modal");
+  if(!editing){
+    window.__trialPreviewToken = null;
+    const customerInput = document.getElementById("f-customer");
+    if(customerInput) customerInput.addEventListener("input", updateTrackingNumberPreview);
+    updateTrackingNumberPreview();
+  }
   // Keep the Add Job form itself scrollable while the action buttons stay
   // fixed at the bottom of the modal. This prevents the blank/expanding
   // space that appeared when scrolling the long form.
@@ -4484,6 +4579,29 @@ function recalcBalance(){
   balEl.value = balance;
 }
 
+function isTrialCustomerName(name){
+  return /\btrial\b/i.test(String(name || ""));
+}
+function trialTrackingNo(prefix){
+  return `TRIAL-${prefix}-${Date.now().toString(36).toUpperCase()}`;
+}
+function updateTrackingNumberPreview(){
+  const customer = document.getElementById("f-customer")?.value || "";
+  const serviceEl = document.getElementById("service-no-preview");
+  const receiptEl = document.getElementById("receipt-no-preview");
+  if(!serviceEl || !receiptEl) return;
+  if(isTrialCustomerName(customer)){
+    const token = String(window.__trialPreviewToken || Date.now().toString(36).toUpperCase());
+    window.__trialPreviewToken = token;
+    serviceEl.textContent = `TRIAL-SVC-${token}`;
+    receiptEl.textContent = `TRIAL-RCPT-${token}`;
+  }else{
+    const seq = Number(state.nextSeq || 1);
+    serviceEl.textContent = `SVC-${String(seq).padStart(3,"0")}`;
+    receiptEl.textContent = `RCPT-${String(seq).padStart(3,"0")}`;
+  }
+}
+
 async function saveTxn(id, isAdmin){
   // Never let a shared dashboard button accidentally downgrade an Admin save
   // into the Staff-only cloud path. The authenticated role is authoritative.
@@ -4548,16 +4666,26 @@ async function saveTxn(id, isAdmin){
     const t = state.transactions.find(x=>x.id===id);
     Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode});
   } else {
-    // Admin uses the persistent sequence. Staff uses a unique timestamp-derived
-    // number so Staff no longer needs to write the legacy app-data counter.
-    const seq = state.nextSeq || 1;
-    state.nextSeq = seq + 1;
+    // Real jobs use the persistent 3-digit sequence. Trial jobs are clearly
+    // separated and do NOT consume a real Service/Receipt number. This keeps
+    // testing data from contaminating the production numbering sequence.
+    const trialJob = isTrialCustomerName(customerName);
+    const seq = Number(state.nextSeq || 1);
     const newId = uid();
     savedJobId = newId;
     const staffCreated = session.staffUnlocked && !isAdmin;
-    const serviceNo = staffCreated ? "SVC-" + String(Date.now()).slice(-8) : "SVC-" + String(seq).padStart(4,"0");
-    const receiptNo = staffCreated ? "RCPT-" + String(Date.now()).slice(-8) : "RCPT-" + String(seq).padStart(4,"0");
-    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo, statusToken: makeRepairStatusToken()};
+    const serviceNo = trialJob
+      ? trialTrackingNo("SVC")
+      : staffCreated
+        ? "SVC-" + String(Date.now()).slice(-8)
+        : "SVC-" + String(seq).padStart(3,"0");
+    const receiptNo = trialJob
+      ? trialTrackingNo("RCPT")
+      : staffCreated
+        ? "RCPT-" + String(Date.now()).slice(-8)
+        : "RCPT-" + String(seq).padStart(3,"0");
+    if(!trialJob) state.nextSeq = seq + 1;
+    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
     state.transactions.push(newJob);
     if(staffCreated){
       try{
