@@ -3036,6 +3036,10 @@ function switchView(key){
     subEl.innerHTML = "Daily check-in and check-out tracking";
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
     renderAttendance();
+    // Re-read the dedicated collection whenever Attendance is opened.
+    // Firestore is authoritative, including an empty result, so a stale
+    // local Staff/Admin cache cannot remain visible after deletion.
+    loadAttendanceFromCollection().then(()=>renderAttendance()).catch(()=>{});
   } else if(key==="staff-gate"){
     session.pendingView = "employee";
     document.getElementById("view-staff-gate").classList.add("active");
@@ -3778,22 +3782,30 @@ function saveAttendanceEdit(id){
 
 async function deleteAttendance(id){
   if(!session.isAdmin || !confirm("Delete this attendance record?")) return;
-  state.attendance = state.attendance.filter(item=>item.id!==id);
+  const record = (state.attendance || []).find(item=>item.id===id);
+  state.attendance = (state.attendance || []).filter(item=>item.id!==id);
   markDeleted("attendance", id);
   renderAttendance();
   const user = firebase.auth().currentUser;
   try{
     if(user && !user.isAnonymous){
-      // Reconcile the whole active branch so cloud attendance cannot retain
-      // a record that Admin has removed locally.
-      await syncAttendanceToCollection();
+      // Delete the exact Firestore document first. This guarantees an Admin
+      // deletion propagates to Staff realtime listeners even when the local
+      // cache and cloud collection have drifted.
+      await withTimeout(db.collection("attendance").doc(id).delete(), 10000);
       await syncAppMeta();
     }
     writeLocal();
     showToast("Attendance record deleted");
   }catch(e){
     console.error("Attendance delete failed:",e);
-    showToast("Deleted locally, but cloud deletion failed");
+    // Restore the local record if the cloud deletion did not succeed.
+    if(record && !(state.attendance || []).some(item=>item.id===id)){
+      state.attendance.push(record);
+      writeLocal();
+      renderAttendance();
+    }
+    showToast("Attendance deletion failed — cloud record was kept");
   }
 }
 
