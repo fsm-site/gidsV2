@@ -1072,6 +1072,12 @@
             <div class="stat-card">
               <div class="stat-label">Total sales today</div>
               <div class="stat-value blue" id="admin-stat-sales">₱0</div>
+              <div class="stat-sub">Fees logged for the selected branch</div>
+            </div>
+            <div class="stat-card">
+              <div class="stat-label">Client tips today</div>
+              <div class="stat-value" id="admin-stat-client-tips">₱0</div>
+              <div class="stat-sub">Internal only · not counted as sales</div>
             </div>
             <div class="stat-card" style="cursor:pointer;" onclick="goToInventoryFromOverview()" title="Go to Inventory">
               <div class="stat-label">Low-stock items</div>
@@ -1114,7 +1120,7 @@
                 <input id="job-search" type="text" placeholder="Search jobs…" value="" oninput="onJobSearch(this.value)"
                   style="border:1px solid var(--line-strong); border-radius:8px; padding:8px 12px; font-size:12.5px; width:180px;">
                 <button class="pill-btn ghost" onclick="openAddTechnicianModal()">+ Add technician</button>
-                <button class="pill-btn danger" onclick="openRemoveTechnicianModal()">Remove technician</button>
+                <button class="pill-btn danger" onclick="openRemoveTechnicianModal()">Technician access</button>
                 <button class="pill-btn primary" onclick="openTxnModal(true)">+ Add job</button>
               </div>
             </div>
@@ -1354,6 +1360,7 @@
 const BRANCHES = ["San Antonio","Bataan","Angeles"];
 const ACTIVE_BRANCHES = ["San Antonio"];
 let ENTITLED_BRANCHES = [...ACTIVE_BRANCHES];
+let technicianDirectoryLoaded = false;
 const DEFAULT_BRANCH = ACTIVE_BRANCHES[0] || BRANCHES[0];
 const BRANCH_CONFIG = {
   "San Antonio": { id:"branch1", status:"active" },
@@ -1979,8 +1986,9 @@ function applyDeletionTombstones(target){
       target[collection] = target[collection].filter(item=>!deleted[collection].includes(item.id));
     }
   });
-  const removed = new Set(Array.isArray(target.removedTechnicians) ? target.removedTechnicians : []);
-  if(Array.isArray(target.technicians)) target.technicians = target.technicians.filter(tech=>!removed.has(tech));
+  // Technician names are not filtered by legacy removal tombstones. A technician
+  // stays available in Add Job until Staff access is explicitly revoked.
+
   const removedAdmins = new Set(Array.isArray(target.removedAdminUsernames) ? target.removedAdminUsernames : []);
   if(Array.isArray(target.adminAccounts)) target.adminAccounts = target.adminAccounts.filter(account=>!removedAdmins.has(account.username));
 }
@@ -2208,7 +2216,6 @@ async function syncAdminJobTransaction(job, inventoryIds=[]){
     branch: state.branch || DEFAULT_BRANCH,
     nextSeq: Number(state.nextSeq || 1),
     numberingResetKey: state.numberingResetKey || "trial-numbering-reset-20260906",
-    technicians: Array.isArray(state.technicians) ? state.technicians : [],
     deletedRecords: state.deletedRecords || {},
     removedTechnicians: Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
     removedAdminUsernames: Array.isArray(state.removedAdminUsernames) ? state.removedAdminUsernames : [],
@@ -2230,7 +2237,6 @@ async function syncAppMeta(){
     branch: state.branch || DEFAULT_BRANCH,
     nextSeq: Number(state.nextSeq || 1),
     numberingResetKey: state.numberingResetKey || "trial-numbering-reset-20260906",
-    technicians: Array.isArray(state.technicians) ? state.technicians : [],
     deletedRecords: state.deletedRecords || {},
     removedTechnicians: Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
     removedAdminUsernames: Array.isArray(state.removedAdminUsernames) ? state.removedAdminUsernames : [],
@@ -2257,7 +2263,8 @@ async function loadAppMeta(){
     if(meta.branchConfig) state.branchConfig = meta.branchConfig;
     if(meta.branch) state.branch = meta.branch;
     if(Number(meta.nextSeq) > 0) state.nextSeq = Number(meta.nextSeq);
-    if(Array.isArray(meta.technicians)) state.technicians = meta.technicians;
+    // Technician names come from techniciansPublic, not stale appMeta data.
+
     if(meta.deletedRecords && typeof meta.deletedRecords === "object") state.deletedRecords = meta.deletedRecords;
     if(Array.isArray(meta.removedTechnicians)) state.removedTechnicians = meta.removedTechnicians;
     if(Array.isArray(meta.removedAdminUsernames)) state.removedAdminUsernames = meta.removedAdminUsernames;
@@ -2273,6 +2280,10 @@ async function loadAppMeta(){
 async function syncTechnicianDirectory(){
   const user = firebase.auth().currentUser;
   if(!user || user.isAnonymous || !session.isAdmin) return;
+  if(!technicianDirectoryLoaded){
+    await loadTechnicianDirectory();
+    if(!technicianDirectoryLoaded) return;
+  }
   const branchId = currentBranchId();
   const technicians = Array.isArray(state.technicians) ? state.technicians.map(t=>String(t).trim()).filter(Boolean) : [];
   await withTimeout(db.collection("techniciansPublic").doc(branchId).set({
@@ -2290,7 +2301,10 @@ async function loadTechnicianDirectory(){
   const branchId = currentBranchId();
   try{
     const snap = await withTimeout(db.collection("techniciansPublic").doc(branchId).get(), 10000);
-    if(!snap.exists) return false;
+    if(!snap.exists){
+      technicianDirectoryLoaded = true;
+      return false;
+    }
     const data = snap.data() || {};
     if(Array.isArray(data.technicians)){
       const technicians = data.technicians.map(t=>String(t).trim()).filter(Boolean);
@@ -2299,8 +2313,10 @@ async function loadTechnicianDirectory(){
       writeLocal();
       renderAll();
     }
+    technicianDirectoryLoaded = true;
     return true;
   }catch(e){
+    technicianDirectoryLoaded = false;
     console.error("Could not load technician directory:", e);
     return false;
   }
@@ -2386,6 +2402,8 @@ async function syncOperationalCollections(){
 
       // Public staff directory mirror. This collection contains only the
       // intentionally public profile fields and is readable without login.
+      // Reconcile deletions too, so a removed profile cannot return after refresh.
+      const desiredStaffPublicIds = new Set();
       (state.staffProfiles || []).filter(p => p && (p.branchId || branchId) === branchId).forEach(profile => {
         const publicProfile = {
           id: profile.id,
@@ -2394,7 +2412,14 @@ async function syncOperationalCollections(){
           position: profile.position || "",
           image: profile.image || ""
         };
+        desiredStaffPublicIds.add(profile.id);
         batch.set(db.collection("staffPublic").doc(profile.id), publicProfile, {merge:true});
+      });
+      const staffPublicSnap = await withTimeout(
+        db.collection("staffPublic").where("branchId","==",branchId).get(), 10000
+      );
+      staffPublicSnap.docs.forEach(doc => {
+        if(!desiredStaffPublicIds.has(doc.id)) batch.delete(doc.ref);
       });
 
       mirror("inventoryPrivate", state.inventory);
@@ -2822,6 +2847,23 @@ function startRealtimeSync(){
       writeLocal();
       renderAll();
     });
+    try{
+      const unsubTech = db.collection("techniciansPublic").doc(branchId).onSnapshot(
+        snap=>{
+          const data = snap.exists ? (snap.data() || {}) : {};
+          if(Array.isArray(data.technicians)){
+            const technicians = data.technicians.map(t=>String(t).trim()).filter(Boolean);
+            TECHS.splice(0, TECHS.length, ...technicians);
+            state.technicians = [...technicians];
+            technicianDirectoryLoaded = true;
+            writeLocal();
+            renderAll();
+          }
+        },
+        err=>console.error("Realtime admin technician directory sync failed:", err)
+      );
+      realtimeUnsubs.push(unsubTech);
+    }catch(e){ console.error("Could not start admin technician directory sync:", e); }
     // Attendance uses a uid-specific query for Staff, but Admin can safely watch the branch.
     watch("attendance", records=>{
       const other = (state.attendance || []).filter(r => (r?.branchId || branchId) !== branchId);
@@ -2851,6 +2893,17 @@ function startRealtimeSync(){
       writeLocal();
       renderAll();
     });
+    try{
+      const unsubStaffPublic = db.collection("staffPublic").where("branchId","==",branchId).onSnapshot(
+        snap=>{
+          state.staffProfiles = snap.docs.map(doc=>({id:doc.id,...doc.data()}));
+          writeLocal();
+          renderAll();
+        },
+        err=>console.error("Realtime staff public directory sync failed:", err)
+      );
+      realtimeUnsubs.push(unsubStaffPublic);
+    }catch(e){ console.error("Could not start staff public directory sync:", e); }
     // Technician names are branch-scoped and shared with Staff as the same
     // cloud-authoritative directory used by Admin.
     try{
@@ -3547,34 +3600,16 @@ function saveTechnician(){
   showToast(`${name} added as a technician`);
 }
 function openRemoveTechnicianModal(){
-  if(!TECHS.length){ showToast("There are no technicians to remove"); return; }
-  const options = TECHS.map(name=>`<option value="${escapeHTML(name)}">${escapeHTML(name)}</option>`).join("");
+  if(!session.isAdmin) return;
   openOverlay(`
-    <h3>Remove technician</h3>
-    <div class="sub">This removes the technician from future job forms. Existing jobs will remain unchanged.</div>
-    <div class="field"><label>Technician</label><select id="remove-tech-name">${options}</select></div>
-    <div class="login-error" id="remove-tech-error"></div>
-    <div class="modal-actions">
-      <button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button>
-      <button class="pill-btn danger" onclick="removeTechnician()">Remove technician</button>
-    </div>
+    <h3>Technician access</h3>
+    <div class="sub">Technicians stay in Add Job after they are added. To remove a technician from future assignments, revoke that technician's Staff access in Security.</div>
+    <div class="muted-box">Existing job records keep their technician history. Only the future assignment list changes when access is revoked.</div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Close</button></div>
   `);
 }
 function removeTechnician(){
-  const selected = document.getElementById("remove-tech-name").value;
-  const index = TECHS.findIndex(name=>name===selected);
-  if(index < 0){
-    document.getElementById("remove-tech-error").textContent = "Select a technician to remove.";
-    return;
-  }
-  TECHS.splice(index, 1);
-  state.technicians = [...TECHS];
-  if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
-  if(!state.removedTechnicians.includes(selected)) state.removedTechnicians.push(selected);
-  saveState();
-  closeOverlay();
-  renderAll();
-  showToast(`${selected} removed from future job forms`);
+  showToast("Technicians are removed from Add Job only when their Staff access is revoked.");
 }
 
 /* ======================= RENDER ======================= */
@@ -3819,12 +3854,21 @@ function saveStaffAccount(id){
 }
 
 function deleteStaffAccount(id){
-  if(!session.isAdmin || !confirm("Revoke this technician's access?")) return;
-  state.staffAccounts = state.staffAccounts.filter(item=>item.id!==id);
+  if(!session.isAdmin || !confirm("Revoke this technician's access? This will also remove the technician from future Add Job assignments.")) return;
+  const account = (state.staffAccounts || []).find(item=>item.id===id);
+  const technician = account?.technician || "";
+  state.staffAccounts = (state.staffAccounts || []).filter(item=>item.id!==id);
   markDeleted("staffAccounts", id);
+  if(technician){
+    TECHS.splice(0, TECHS.length, ...TECHS.filter(name=>name!==technician));
+    state.technicians = [...TECHS];
+    if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
+    if(!state.removedTechnicians.includes(technician)) state.removedTechnicians.push(technician);
+  }
   saveState();
+  renderAll();
   renderStaffAccess();
-  showToast("Staff access revoked");
+  showToast(technician ? `${technician} access revoked and removed from future assignments` : "Staff access revoked");
 }
 
 function attendanceReportWindow(period){
@@ -4230,6 +4274,9 @@ function renderAdminOverview(){
 
   document.getElementById("admin-stat-clients").textContent = todays.length;
   document.getElementById("admin-stat-sales").textContent = peso(todays.reduce((s,t)=>s+collectedAmount(t),0));
+  const tipTotal = todays.reduce((s,t)=>s + Math.max(0, Number(t.clientTip || 0)), 0);
+  const tipEl = document.getElementById("admin-stat-client-tips");
+  if(tipEl) tipEl.textContent = peso(tipTotal);
   const lowStockCount = state.inventory.filter(i => (Number(i.quantity)-Number(i.used||0)) <= Number(i.reorderLevel ?? LOW_STOCK_THRESHOLD)).length;
   document.getElementById("admin-stat-lowstock").textContent = lowStockCount;
 
@@ -4350,7 +4397,6 @@ async function deleteStockMovement(id){
         branch:state.branch || DEFAULT_BRANCH,
         nextSeq:Number(state.nextSeq || 1),
         numberingResetKey:state.numberingResetKey || "trial-numbering-reset-20260906",
-        technicians:Array.isArray(state.technicians) ? state.technicians : [],
         deletedRecords:state.deletedRecords || {},
         removedTechnicians:Array.isArray(state.removedTechnicians) ? state.removedTechnicians : [],
         removedAdminUsernames:Array.isArray(state.removedAdminUsernames) ? state.removedAdminUsernames : [],
