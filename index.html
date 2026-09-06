@@ -911,7 +911,7 @@
           <div class="panel-head">
             <div>
               <h3>Repair Status</h3>
-              <div class="desc">Live repair progress for the current branch. Staff can update status only.</div>
+              <div class="desc">Live repair progress for the current branch. ${session.isAdmin ? "Admin can update repair status and view full job details." : "Staff can update repair status only. Customer and job details are read-only."}</div>
             </div>
           </div>
           <div class="repair-status-toolbar" style="padding:0 16px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
