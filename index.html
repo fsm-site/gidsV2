@@ -352,24 +352,23 @@
   .calc-btn.calc-zero{ grid-column:span 2; }
 
   /* ---------- Receipt ---------- */
-  .receipt{ position:relative; overflow:hidden; background:linear-gradient(145deg,rgba(238,248,255,.86),rgba(196,224,246,.62)) !important; color:#101A2E !important; border:1px solid rgba(255,255,255,.86); border-radius:14px; padding:20px 18px; box-shadow:0 14px 34px rgba(25,55,90,.18), inset 0 1px 0 rgba(255,255,255,.92); backdrop-filter:blur(18px) saturate(135%); }
-  .receipt::after{ content:""; position:absolute; z-index:2; top:-80%; left:-18%; width:18%; height:260%; background:linear-gradient(90deg,transparent,rgba(255,255,255,.7),transparent); transform:translateX(-220%) rotate(18deg); pointer-events:none; animation:receiptShine 4.5s ease-in-out infinite; }
-  @keyframes receiptShine{
-    0%, 18%{ transform:translateX(-220%) rotate(18deg); opacity:0; }
-    32%{ opacity:1; }
-    62%{ transform:translateX(720%) rotate(18deg); opacity:1; }
-    78%, 100%{ transform:translateX(720%) rotate(18deg); opacity:0; }
-  }
-  .receipt-head{ text-align:center; margin-bottom:12px; }
-  .receipt-biz{ font-family:'Anton',sans-serif; font-size:18px; letter-spacing:.5px; color:#101A2E !important; }
-  .receipt-loc, .receipt-branch{ font-size:11.5px; color:#52627a !important; margin-top:2px; }
-  .receipt-meta{ border-top:1px dashed #9eafc2; border-bottom:1px dashed #9eafc2; padding:10px 0; margin-bottom:10px; }
-  .receipt-meta div{ font-size:12.5px; color:#101A2E !important; margin-bottom:3px; }
-  .receipt-table{ width:100%; border-collapse:collapse; margin-bottom:10px; }
-  .receipt-table th{ font-size:10px; text-transform:uppercase; letter-spacing:.5px; color:#52627a !important; text-align:left; padding:4px 2px; border-bottom:1px solid #9eafc2; background:transparent !important; }
-  .receipt-table td{ font-size:12.5px; padding:6px 2px; border-bottom:none; color:#101A2E !important; }
-  .receipt-total-row{ text-align:right; font-size:14px; color:#101A2E !important; padding-top:6px; border-top:1px dashed #9eafc2; }
-  .receipt-foot{ text-align:center; font-size:11.5px; color:#52627a !important; margin-top:14px; }
+  .modal.receipt-modal{ width:min(520px,100%); max-width:520px; max-height:calc(100dvh - 20px); overflow:hidden; padding:10px; background:#fff !important; color:#111 !important; border:1px solid #b8b8b8; border-radius:10px; box-shadow:0 18px 50px rgba(0,0,0,.35); backdrop-filter:none; }
+  .receipt-modal .receipt{ position:relative; overflow:hidden; background:#fff !important; color:#111 !important; border:1px solid #8f8f8f; border-radius:4px; padding:14px 14px 12px; box-shadow:none; backdrop-filter:none; }
+  .receipt-head{ text-align:center; margin-bottom:8px; }
+  .receipt-biz{ font-family:'Anton',sans-serif; font-size:18px; letter-spacing:.5px; color:#111 !important; }
+  .receipt-loc, .receipt-branch{ font-size:11px; color:#444 !important; margin-top:2px; }
+  .receipt-meta{ border:1px solid #999; padding:7px 8px; margin-bottom:8px; }
+  .receipt-meta div{ font-size:11.5px; color:#111 !important; margin-bottom:2px; }
+  .receipt-table{ width:100%; border-collapse:collapse; margin-bottom:8px; border:1px solid #888; }
+  .receipt-table th{ font-size:9.5px; text-transform:uppercase; letter-spacing:.4px; color:#222 !important; text-align:left; padding:4px 5px; border:1px solid #888; background:#f5f5f5 !important; }
+  .receipt-table td{ font-size:11.5px; padding:5px; border:1px solid #aaa; color:#111 !important; }
+  .receipt-total-row{ text-align:right; font-size:12.5px; color:#111 !important; padding:5px 4px 0; border-top:1px solid #888; margin-top:4px; }
+  .receipt-warranty{ margin-top:8px; padding-top:7px; border-top:1px solid #888; font-size:10.5px; line-height:1.35; color:#222 !important; }
+  .receipt-foot{ text-align:center; font-size:10.5px; color:#444 !important; margin-top:7px; }
+  .balance-due{ color:#c62828 !important; font-weight:800; }
+  .encoded-stamp{ font-size:10px; color:var(--muted); margin-top:2px; line-height:1.2; white-space:nowrap; }
+  .receipt-modal .modal-actions{ flex:none; padding:7px 2px 2px; margin:0; background:#fff !important; }
+  .receipt-modal .modal-actions .pill-btn{ min-height:36px; }
 
   /* ---------- Splash screen (logo fit-to-size on open) ---------- */
   #app-splash{
@@ -647,23 +646,32 @@
       text-align:left;
     }
     #admin-inv-body td:nth-child(1), #admin-inv-body td:nth-child(8),
-    #admin-txn-body td:nth-child(1), #admin-txn-body td:nth-child(7){ grid-column:1 / -1; }
+    #admin-txn-body td:nth-child(1), #admin-txn-body td:nth-child(8),
+    #employee-txn-body td:nth-child(1), #employee-txn-body td:nth-child(8){ grid-column:1 / -1; }
     #admin-inv-body td:nth-child(1){ display:block; text-align:left !important; padding-bottom:8px; }
     #admin-inv-body td:nth-child(1)::before{ display:none; }
     #admin-inv-body td:nth-child(1) b{ display:block; font-size:13px; }
-    #admin-inv-body td:nth-child(8), #admin-txn-body td:nth-child(7){ justify-content:flex-end; padding-top:8px; }
+    #admin-inv-body td:nth-child(8), #admin-txn-body td:nth-child(8), #employee-txn-body td:nth-child(8){ justify-content:flex-end; padding-top:8px; }
+    #employee-txn-body td:nth-child(1){ display:block; text-align:left !important; padding-bottom:8px; }
+    #employee-txn-body td:nth-child(1)::before{ display:none; }
     #admin-inv-body td:nth-child(2)::before{ content:"Supplier"; }
     #admin-inv-body td:nth-child(3)::before{ content:"Quantity"; }
     #admin-inv-body td:nth-child(4)::before{ content:"Cost"; }
     #admin-inv-body td:nth-child(5)::before{ content:"SRP"; }
     #admin-inv-body td:nth-child(6)::before{ content:"Total"; }
     #admin-inv-body td:nth-child(7)::before{ content:"Available"; }
-    #admin-txn-body td:nth-child(1)::before{ content:"Technician"; }
-    #admin-txn-body td:nth-child(2)::before{ content:"Service"; }
-    #admin-txn-body td:nth-child(3)::before{ content:"Phone"; }
-    #admin-txn-body td:nth-child(4)::before{ content:"Item"; }
-    #admin-txn-body td:nth-child(5)::before{ content:"Payment"; }
-    #admin-txn-body td:nth-child(6)::before{ content:"Paid / fee"; }
+    #employee-txn-body td:nth-child(2)::before{ content:"Technician"; }
+    #employee-txn-body td:nth-child(3)::before{ content:"Service"; }
+    #employee-txn-body td:nth-child(4)::before{ content:"Phone"; }
+    #employee-txn-body td:nth-child(5)::before{ content:"Item"; }
+    #employee-txn-body td:nth-child(6)::before{ content:"Payment"; }
+    #employee-txn-body td:nth-child(7)::before{ content:"Paid / fee"; }
+    #admin-txn-body td:nth-child(2)::before{ content:"Technician"; }
+    #admin-txn-body td:nth-child(3)::before{ content:"Service"; }
+    #admin-txn-body td:nth-child(4)::before{ content:"Phone"; }
+    #admin-txn-body td:nth-child(5)::before{ content:"Item"; }
+    #admin-txn-body td:nth-child(6)::before{ content:"Payment"; }
+    #admin-txn-body td:nth-child(7)::before{ content:"Paid / fee"; }
     #stock-movements-body td:nth-child(1)::before{ content:"Date"; }
     #stock-movements-body td:nth-child(2)::before{ content:"Item"; }
     #stock-movements-body td:nth-child(3)::before{ content:"Type"; }
@@ -831,7 +839,7 @@
             <button class="pill-btn primary" onclick="openTxnModal()">+ Add job</button>
           </div>
           <table>
-            <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Receipt</th></tr></thead>
+            <thead><tr><th>No. / Encoded</th><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Receipt</th></tr></thead>
             <tbody id="employee-txn-body"></tbody>
           </table>
         </div>
@@ -1105,7 +1113,7 @@
               </div>
             </div>
             <table>
-              <thead><tr><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Actions</th></tr></thead>
+              <thead><tr><th>No. / Encoded</th><th>Tech assigned</th><th>Service type</th><th>Phone</th><th>Item used</th><th>Payment</th><th style="text-align:right">Paid / fee</th><th style="text-align:right">Actions</th></tr></thead>
               <tbody id="admin-txn-body"></tbody>
             </table>
           </div>
@@ -1441,6 +1449,18 @@ function getToday(){
 function todayStr(d=getToday()){ return d.toISOString().slice(0,10); }
 function monthStr(d=getToday()){ return d.toISOString().slice(0,7); }
 function peso(n){ return "₱" + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
+function encodedStamp(t){
+  const d = t?.ts ? new Date(Number(t.ts)) : null;
+  if(!d || Number.isNaN(d.getTime())) return t?.date || "—";
+  return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+}
+function warrantyExpiryDate(t){
+  const raw = String(t?.date || todayStr());
+  const parts = raw.split("-").map(Number);
+  const d = parts.length===3 && parts.every(Number.isFinite) ? new Date(parts[0],parts[1]-1,parts[2]) : new Date();
+  d.setDate(d.getDate()+7);
+  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+}
 function collectedAmount(t){
   if(t.invoiceStatus === "Unpaid") return 0;
   if(t.invoiceStatus === "Partial") return Number(t.amountPaid||0);
@@ -3794,21 +3814,22 @@ function renderEmployeeDashboard(){
   document.getElementById("stat-sales").textContent = peso(rows.reduce((s,t)=>s+collectedAmount(t),0));
 
   const body = document.getElementById("employee-txn-body");
-  body.innerHTML = rows.length ? rows.map(t=>`
+  body.innerHTML = rows.length ? rows.map((t,index)=>`
     <tr>
+      <td><b>#${index+1}</b><div class="encoded-stamp">${escapeHTML(encodedStamp(t))}</div></td>
       <td>${escapeHTML(t.tech)}</td>
       <td>${escapeHTML(serviceLabel(t))}</td>
       <td>${escapeHTML(phoneLabel(t))}</td>
       <td>${escapeHTML(itemNameById(t.itemUsed))}</td>
       <td>${escapeHTML(t.paymentMode||"—")}</td>
-      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
+      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub balance-due">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
       <td style="text-align:right">
         <div class="row-actions" style="justify-content:flex-end;">
           <button onclick="openReceiptModal('${t.id}')" title="Receipt">${receiptIconSVG()}</button>
           ${balanceAmount(t)>0 ? `<button onclick="collectBalance('${t.id}')" title="Collect balance">${collectIconSVG()}</button>` : ""}
         </div>
       </td>
-    </tr>`).join("") : `<tr class="empty-row"><td colspan="7">No jobs logged yet today for ${ui.branch}. Tap "Add job" to log one.</td></tr>`;
+    </tr>`).join("") : `<tr class="empty-row"><td colspan="8">No jobs logged yet today for ${ui.branch}. Tap "Add job" to log one.</td></tr>`;
 }
 
 function renderPublicInventory(){
@@ -4034,14 +4055,15 @@ function renderAdminTxnsTable(){
   const body = document.getElementById("admin-txn-body");
   if(!body) return;
   const emptyMsg = q ? `No jobs match “${escapeHTML(ui.jobSearch)}”.` : `No jobs logged for ${ui.adminBranch} yet.`;
-  body.innerHTML = rows.length ? rows.map(t=>`
+  body.innerHTML = rows.length ? rows.map((t,index)=>`
     <tr>
+      <td><b>#${index+1}</b><div class="encoded-stamp">${escapeHTML(encodedStamp(t))}</div></td>
       <td>${escapeHTML(t.tech)}</td>
       <td>${escapeHTML(serviceLabel(t))}</td>
       <td>${escapeHTML(phoneLabel(t))}</td>
       <td>${escapeHTML(itemNameById(t.itemUsed))}</td>
       <td>${escapeHTML(t.paymentMode||"—")}</td>
-      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
+      <td style="text-align:right" class="fee">${peso(collectedAmount(t))}${balanceAmount(t)>0?`<div class="stat-sub balance-due">Balance: ${peso(balanceAmount(t))}</div>`:""}</td>
       <td style="text-align:right">
         <div class="row-actions" style="justify-content:flex-end;">
           <button onclick="openReceiptModal('${t.id}')" title="Receipt">${receiptIconSVG()}</button>
@@ -4050,7 +4072,7 @@ function renderAdminTxnsTable(){
           <button class="del" onclick="deleteTxn('${t.id}')" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M6 6l1 14h10l1-14"/></svg></button>
         </div>
       </td>
-    </tr>`).join("") : `<tr class="empty-row"><td colspan="7">${emptyMsg}</td></tr>`;
+    </tr>`).join("") : `<tr class="empty-row"><td colspan="8">${emptyMsg}</td></tr>`;
 }
 
 function phoneLabel(t){
@@ -4131,8 +4153,11 @@ function deleteIconSVG(){
 }
 
 /* ======================= MODALS ======================= */
-function openOverlay(html){
-  document.getElementById("modal-body").innerHTML = html;
+function openOverlay(html, modalClass=""){
+  const modal = document.getElementById("modal-body");
+  modal.className = "modal";
+  if(modalClass) modal.classList.add(modalClass);
+  modal.innerHTML = html;
   document.getElementById("overlay").classList.add("active");
   document.documentElement.classList.add("modal-open");
   document.body.classList.add("modal-open");
@@ -4144,7 +4169,10 @@ function closeOverlay(){
 }
 document.getElementById("overlay").addEventListener("click", (e)=>{ if(e.target.id==="overlay") closeOverlay(); });
 
-function openTxnModal(isAdmin=false, editId=null){
+function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
+  // Dashboard Add Job is shared by Admin and Staff. Infer the active role so
+  // an Admin opening Add Job from the main dashboard uses Admin cloud writes.
+  isAdmin = !!(isAdmin || session.isAdmin);
   const editing = editId ? state.transactions.find(t=>t.id===editId) : null;
   const branchForForm = isAdmin ? ui.adminBranch : ui.branch;
   const branchOptions = isAdmin ? BRANCHES.map(b=>`<option value="${b}" ${ (editing?editing.branch:branchForForm)===b?"selected":""}>${b}</option>`).join("") : "";
@@ -4319,6 +4347,9 @@ function recalcBalance(){
 }
 
 async function saveTxn(id, isAdmin){
+  // Never let a shared dashboard button accidentally downgrade an Admin save
+  // into the Staff-only cloud path. The authenticated role is authoritative.
+  isAdmin = !!(isAdmin || session.isAdmin);
   const tech = document.getElementById("f-tech").value.trim();
   const serviceType = document.getElementById("f-service").value.trim();
   const customerName = document.getElementById("f-customer").value.trim();
@@ -4602,7 +4633,8 @@ function openReceiptModal(id){
       </table>
       <div class="receipt-total-row">Total Amount: <b>${peso(t.fee)}</b></div>
       <div class="receipt-total-row">Amount Paid: <b>${peso(collectedAmount(t))}</b></div>
-      <div class="receipt-total-row">Balance: <b>${peso(balanceAmount(t))}</b></div>
+      <div class="receipt-total-row ${balanceAmount(t)>0 ? "balance-due" : ""}">Balance: <b>${peso(balanceAmount(t))}</b></div>
+      <div class="receipt-warranty"><b>Warranty: 7 days</b> · Expires: <b>${escapeHTML(warrantyExpiryDate(t))}</b><br>Terms &amp; Conditions apply.</div>
       <div class="receipt-foot">Thank you for choosing ${escapeHTML(BIZ_NAME)}!</div>
     </div>
     <div class="modal-actions">
@@ -4613,11 +4645,11 @@ function openReceiptModal(id){
       ${balanceAmount(t)>0 ? `<button class="pill-btn primary" onclick="collectBalance('${t.id}'); closeOverlay();">Collect balance</button>` : ""}
       <button class="pill-btn primary" onclick="downloadReceiptPdf('${t.id}')">Download PDF</button>
     </div>
-  `);
+  `, "receipt-modal");
 }
 
 function receiptText(t){
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}`;
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nTerms & Conditions apply.`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
@@ -4663,9 +4695,11 @@ function printReceipt(){
     .receipt-meta{ border-top:1px dashed #999; border-bottom:1px dashed #999; padding:8px 0; margin-bottom:8px; }
     .receipt-meta div{ font-size:12px; margin-bottom:2px; }
     .receipt-table{ width:100%; border-collapse:collapse; margin:8px 0; font-size:12px; }
-    .receipt-table th, .receipt-table td{ border-bottom:1px dashed #999; padding:4px 2px; text-align:left; }
-    .receipt-total-row{ font-size:13px; text-align:right; margin-top:6px; border-top:1px dashed #999; padding-top:6px; }
-    .receipt-foot{ text-align:center; font-size:11px; margin-top:14px; }
+    .receipt-table{ border:1px solid #888; border-collapse:collapse; }
+    .receipt-table th, .receipt-table td{ border:1px solid #999; padding:4px 3px; text-align:left; }
+    .receipt-total-row{ font-size:13px; text-align:right; margin-top:6px; border-top:1px solid #888; padding-top:6px; }
+    .receipt-warranty{ margin-top:8px; padding-top:6px; border-top:1px solid #888; font-size:10px; line-height:1.35; }
+    .receipt-foot{ text-align:center; font-size:11px; margin-top:8px; }
   </style></head><body>${area.outerHTML}</body></html>`);
   w.document.close();
   w.focus();
@@ -4718,9 +4752,16 @@ function downloadReceiptPdf(id){
   y2 += 13;
   doc.text(`Paid: ${peso(collectedAmount(t))}`, 213, y2, { align:"right" });
   y2 += 13;
+  if(balanceAmount(t)>0) doc.setTextColor(198,40,40);
   doc.text(`Balance: ${peso(balanceAmount(t))}`, 213, y2, { align:"right" });
-  y2 += 20;
-  doc.setFont("helvetica","normal"); doc.setFontSize(8);
+  doc.setTextColor(0,0,0);
+  y2 += 15;
+  doc.setFont("helvetica","bold"); doc.setFontSize(8);
+  doc.text(`Warranty: 7 days  |  Expires: ${warrantyExpiryDate(t)}`, midX, y2, { align:"center" });
+  y2 += 11;
+  doc.setFont("helvetica","normal");
+  doc.text(`Terms & Conditions apply.`, midX, y2, { align:"center" });
+  y2 += 14;
   doc.text(`Thank you for choosing ${BIZ_NAME}!`, midX, y2, { align:"center" });
 
   doc.save(`GIDS-receipt-${receiptNoOf(t)}.pdf`);
