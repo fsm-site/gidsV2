@@ -914,6 +914,10 @@
               <div class="desc">Live repair progress for the current branch. Staff can update status only.</div>
             </div>
           </div>
+          <div class="repair-status-toolbar" style="padding:0 16px 14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <input id="repair-status-search" class="search-input" type="search" placeholder="Search customer, service no., phone, tech..." value="" oninput="ui.repairSearch=this.value;renderRepairStatus()" style="flex:1;min-width:220px;max-width:420px;">
+            <button class="pill-btn ghost" type="button" onclick="document.getElementById('repair-status-search').value='';ui.repairSearch='';renderRepairStatus();document.getElementById('repair-status-search').focus();">Clear</button>
+          </div>
           <div class="table-wrap">
             <table>
               <thead><tr><th>Name of Customer</th><th>Tech Assigned</th><th>Date / No.</th><th>Service</th><th>Phone</th><th>Status</th></tr></thead>
@@ -1452,7 +1456,7 @@ function enforceClientRole(){
     session.staffUnlocked = true;
   }
 }
-let ui = { branch: DEFAULT_BRANCH, adminBranch: DEFAULT_BRANCH, subtab:"overview", pubSub:"parts", invSub:"parts", jobSearch:"", invSearch:"", trendRange:7, trendDate:todayStr(), attendancePeriod:"daily" };
+let ui = { branch: DEFAULT_BRANCH, adminBranch: DEFAULT_BRANCH, subtab:"overview", pubSub:"parts", invSub:"parts", jobSearch:"", invSearch:"", trendRange:7, trendDate:todayStr(), attendancePeriod:"daily", repairSearch:"" };
 
 /* Force the current year to 2026 for all "today" displays and date logic,
    so the dashboard's date always reflects 2026 regardless of device clock. */
@@ -3479,8 +3483,17 @@ function renderRepairStatus(){
   const body = document.getElementById("repair-status-body");
   if(!body) return;
   const branch = session.isAdmin ? ui.adminBranch : ui.branch;
+  const q = String(ui.repairSearch || "").trim().toLowerCase();
   const rows = (state.transactions || [])
     .filter(t => t.branch === branch)
+    .filter(t => {
+      if(!q) return true;
+      const haystack = [
+        t.customerName, t.tech, serviceNoOf(t), serviceLabel(t),
+        t.customerPhone, t.phoneBrand, t.phoneModel, normalizeJobStatus(t.jobStatus)
+      ].join(" ").toLowerCase();
+      return haystack.includes(q);
+    })
     .sort((a,b)=>Number(b.ts||0)-Number(a.ts||0));
   body.innerHTML = rows.length ? rows.map(t=>{
     const status = normalizeJobStatus(t.jobStatus);
@@ -3488,18 +3501,19 @@ function renderRepairStatus(){
     const service = serviceLabel(t);
     const dateNo = `${encodedStamp(t)}<div class="stat-sub">${escapeHTML(serviceNoOf(t))}</div>`;
     const statusControl = session.staffUnlocked && !session.isAdmin
-      ? `<button class="status-link" onclick="openStaffRepairStatusModal('${t.id}')">${escapeHTML(status)}</button>`
+      ? `<button class="status-link" type="button" onclick="openStaffRepairStatusModal('${t.id}')">${escapeHTML(status)}</button>`
       : `<select class="status-select" onchange="updateJobStatus('${t.id}',this.value)">${JOB_STATUSES.map(st=>`<option value="${st}" ${st===status?"selected":""}>${st}</option>`).join("")}</select>`;
     return `<tr>
-      <td><button class="customer-name-link" onclick="${session.staffUnlocked&&!session.isAdmin ? `openStaffRepairStatusModal('${t.id}')` : `openReceiptModal('${t.id}')`}">${escapeHTML(name)}</button></td>
+      <td><button class="customer-name-link" type="button" onclick="${session.staffUnlocked&&!session.isAdmin ? `openStaffRepairStatusModal('${t.id}')` : `openReceiptModal('${t.id}')`}">${escapeHTML(name)}</button></td>
       <td>${escapeHTML(t.tech||"—")}</td>
       <td>${dateNo}</td>
       <td>${escapeHTML(service)}</td>
       <td>${escapeHTML(t.customerPhone||"—")}</td>
       <td>${statusControl}</td>
     </tr>`;
-  }).join("") : `<tr class="empty-row"><td colspan="6">No repair records for ${escapeHTML(branch)}.</td></tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="6">${q ? `No repair records match “${escapeHTML(ui.repairSearch)}” in ${escapeHTML(branch)}.` : `No repair records for ${escapeHTML(branch)}.`}</td></tr>`;
 }
+
 function openStaffRepairStatusModal(id){
   if(!session.staffUnlocked || session.isAdmin) return;
   const t = state.transactions.find(x=>x.id===id);
@@ -4270,40 +4284,64 @@ function renderAppointments(){
     <td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">Receipt</button></td></tr>`).join("") :
     `<tr class="empty-row"><td colspan="6">No appointments scheduled for ${escapeHTML(ui.adminBranch)}.</td></tr>`;
 }
+async function syncRepairStatusCloud(job, status){
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous) throw new Error("Authentication required");
+  if(!(session.isAdmin || session.staffUnlocked)) throw new Error("Signed-in access required");
+  const normalized = normalizeJobStatus(status);
+  if(!JOB_STATUSES.includes(normalized)) throw new Error("Invalid repair status");
+  const branchId = branchIdForName(job.branch || (session.isAdmin ? ui.adminBranch : ui.branch) || DEFAULT_BRANCH) || currentBranchId();
+  const token = repairStatusTokenOf(job);
+  const next = {...job, jobStatus:normalized, statusToken:token};
+  const publicData = publicRepairStatusRecord(next, branchId);
+  if(normalized === "Received"){
+    const now = firebase.firestore.Timestamp.now();
+    const expires = firebase.firestore.Timestamp.fromMillis(now.toMillis() + (7 * 24 * 60 * 60 * 1000));
+    publicData.statusReceivedAt = now;
+    publicData.accessExpiresAt = expires;
+  }else if(job.statusReceivedAt){
+    publicData.statusReceivedAt = job.statusReceivedAt;
+    publicData.accessExpiresAt = job.accessExpiresAt || null;
+  }
+  const batch = db.batch();
+  // Repair Status is intentionally isolated: do not resave the Add Job/sales
+  // record here. Only the operational job status and its public tracker mirror
+  // are changed by this action.
+  batch.update(db.collection("jobs").doc(job.id), {jobStatus:normalized});
+  batch.set(db.collection("repairStatusPublic").doc(token), publicData, {merge:true});
+  await withTimeout(batch.commit(), 10000);
+  if(normalized === "Received"){
+    job.statusReceivedAt = publicData.statusReceivedAt;
+    job.accessExpiresAt = publicData.accessExpiresAt;
+  }
+}
+
 async function updateJobStatus(id,status){
   const t=state.transactions.find(x=>x.id===id);
   status = normalizeJobStatus(status);
-  if(!t || !JOB_STATUSES.includes(status)) return;
-  const wasStaff = session.staffUnlocked && !session.isAdmin;
+  if(!t || !JOB_STATUSES.includes(status)) return false;
   const oldStatus = t.jobStatus;
+  const oldReceivedAt = t.statusReceivedAt;
+  const oldExpiresAt = t.accessExpiresAt;
   t.jobStatus = status;
-  if(wasStaff){
-    try{
-      await updateStaffJobStatusInCollection(id,status);
-      writeLocal();
-      renderAll();
-      showToast("Job status updated");
-      return true;
-    }catch(e){
-      t.jobStatus = oldStatus;
-      writeLocal();
-      console.error("Staff job status sync failed:", e);
-      showToast("Couldn't update job status in the cloud");
-      return false;
-    }
-  }
   try{
-    await syncAdminJobTransaction(t, []);
-    writeLocal(); renderAll(); showToast("Job status updated");
+    await syncRepairStatusCloud(t,status);
+    writeLocal();
+    renderAll();
+    showToast("Repair status updated and synced");
+    return true;
   }catch(e){
     t.jobStatus = oldStatus;
-    writeLocal(); renderAll();
-    console.error("Admin job status sync failed:", e);
-    showToast("Couldn't update job status in the cloud");
+    t.statusReceivedAt = oldReceivedAt;
+    t.accessExpiresAt = oldExpiresAt;
+    writeLocal();
+    renderAll();
+    console.error("Repair status sync failed:", e);
+    showToast("Couldn't update repair status in the cloud");
     return false;
   }
-  return true;
 }
+
 function renderCustomerHistory(query=""){
   const body=document.getElementById("customer-history-body");
   if(!body) return;
