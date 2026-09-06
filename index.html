@@ -2377,14 +2377,17 @@ async function loadAdminCollections(){
     // no legacy app-data fallback is used.
     // Jobs are the operational source, while salesPrivate overlays the
     // Admin-only financial fields so receipt/job views keep complete data.
-    if(jobs.length) state.transactions = jobs;
-    if(inventoryPrivate.length) state.inventory = inventoryPrivate;
-    if(staffProfiles.length) state.staffProfiles = staffProfiles;
-    if(suppliers.length) state.suppliers = suppliers;
-    if(stockMovements.length) state.stockMovements = stockMovements;
-    if(staffAccounts.length) state.staffAccounts = staffAccounts;
-    if(adminAccounts.length) state.adminAccounts = adminAccounts;
-    if(purchaseOrders.length) state.purchaseOrders = purchaseOrders;
+    // Dedicated collections are authoritative for the active branch, including
+    // the empty state. Never keep stale local records just because the cloud
+    // collection currently has zero documents.
+    state.transactions = jobs;
+    state.inventory = inventoryPrivate;
+    state.staffProfiles = staffProfiles;
+    state.suppliers = suppliers;
+    state.stockMovements = stockMovements;
+    state.staffAccounts = staffAccounts;
+    state.adminAccounts = normalizeAdminAccounts(adminAccounts);
+    state.purchaseOrders = purchaseOrders;
     if(commissionDocs.length){
       state.commissionRates = {};
       commissionDocs.forEach(doc=>{
@@ -2392,14 +2395,14 @@ async function loadAdminCollections(){
         if(tech) state.commissionRates[tech] = Number(doc.rate || 0);
       });
     }
-    if(salesPrivate.length){
-      const byId = new Map((state.transactions || []).map(t=>[t.id,t]));
-      salesPrivate.forEach(sale=>{
-        const old = byId.get(sale.id) || {};
-        byId.set(sale.id, {...old, ...sale});
-      });
-      state.transactions = [...byId.values()];
-    }
+    // Financial data is an overlay only for jobs that still exist.
+    // Sales records that survive temporarily after a job deletion must never
+    // resurrect a deleted job in the UI.
+    const salesById = new Map(salesPrivate.map(sale=>[sale.id,sale]));
+    state.transactions = (state.transactions || []).map(job => {
+      const sale = salesById.get(job.id);
+      return sale ? {...job, ...sale} : {...job};
+    });
 
     // Guard against a partially migrated record: if a dedicated job exists
     // but its financial overlay is temporarily missing, preserve the legacy
@@ -2439,14 +2442,17 @@ async function loadStaffOperationalCollections(){
     // These dedicated collections are authoritative for the active branch,
     // including the empty state. If Admin deletes the last job, Staff must
     // immediately become empty instead of keeping stale localStorage rows.
-    const byId = new Map(jobs.map(j=>[j.id,j]));
-    sales.forEach(sale=>{
-      const old = byId.get(sale.id) || {};
-      byId.set(sale.id, {...old, ...sale});
+    // Jobs are authoritative for the Staff job list, including zero jobs.
+    // Financial sales are only an overlay for jobs that still exist; they must
+    // never resurrect records after Admin deletes them.
+    const salesById = new Map(sales.map(sale=>[sale.id,sale]));
+    state.transactions = jobs.map(job => {
+      const sale = salesById.get(job.id);
+      return sale ? {...job, ...sale} : {...job};
     });
-    state.transactions = [...byId.values()];
     state.transactions = state.transactions.filter(t => (t.branchId || branchId) === branchId);
-    if(inventory.length) state.inventory = inventory;
+    // Inventory is also authoritative for the active branch, including empty.
+    state.inventory = inventory;
     writeLocal();
     return true;
   }catch(e){
@@ -2499,22 +2505,24 @@ async function loadAttendanceFromCollection(){
       });
 
     if(session.isAdmin){
-      // The dedicated attendance collection is now authoritative for this
-      // branch whenever it contains records. Keep other branches untouched.
+      // The dedicated attendance collection is authoritative for this branch,
+      // including an empty result. This prevents stale local attendance from
+      // surviving after Admin deletes the last record.
       const otherBranches = (state.attendance || []).filter(r =>
         (r.branchId || branchId) !== branchId
       );
       state.attendance = [...otherBranches, ...cloudAttendance];
     }else{
       // Staff sees only their own attendance from the dedicated collection.
-      const ownIds = new Set(cloudAttendance.map(r=>r.id));
-      state.attendance = (state.attendance || []).filter(r=>
-        !ownIds.has(r.id) && r.uid !== user.uid
+      // Always remove the local copy for this UID first, even when the cloud
+      // query returns zero documents.
+      const otherUsers = (state.attendance || []).filter(r =>
+        (r.branchId || branchId) !== branchId || r.uid !== user.uid
       );
-      state.attendance.push(...cloudAttendance);
+      state.attendance = [...otherUsers, ...cloudAttendance];
     }
     writeLocal();
-    return cloudAttendance.length > 0;
+    return true;
   }catch(e){
     console.error("Could not load separated attendance:", e);
     return false;
@@ -2673,7 +2681,7 @@ function startRealtimeSync(){
       renderAll();
     });
     watch("adminAccounts", records=>{
-      state.adminAccounts = records;
+      state.adminAccounts = normalizeAdminAccounts(records);
       writeLocal();
       renderAll();
     });
@@ -3729,15 +3737,25 @@ function saveAttendanceEdit(id){
   showToast("Attendance updated");
 }
 
-function deleteAttendance(id){
+async function deleteAttendance(id){
   if(!session.isAdmin || !confirm("Delete this attendance record?")) return;
   state.attendance = state.attendance.filter(item=>item.id!==id);
   markDeleted("attendance", id);
-  saveState();
-  const user = firebase.auth().currentUser;
-  if(user && !user.isAnonymous) db.collection("attendance").doc(id).delete().catch(e=>console.error("Attendance delete failed:",e));
   renderAttendance();
-  showToast("Attendance record deleted");
+  const user = firebase.auth().currentUser;
+  try{
+    if(user && !user.isAnonymous){
+      await withTimeout(db.collection("attendance").doc(id).delete(), 10000);
+      // Persist the tombstone so a later cloud sync cannot resurrect the
+      // deleted attendance record from another cached copy.
+      await syncAppMeta();
+    }
+    writeLocal();
+    showToast("Attendance record deleted");
+  }catch(e){
+    console.error("Attendance delete failed:",e);
+    showToast("Deleted locally, but cloud deletion failed");
+  }
 }
 
 function checkInTechnician(){
@@ -4631,14 +4649,35 @@ function addStockMovement(item, qty, type, reference){
   state.stockMovements = state.stockMovements.slice(0, 200);
 }
 
-function deleteTxn(id){
+async function deleteTxn(id){
   if(!confirm("Delete this job? This can't be undone.")) return;
   const t = state.transactions.find(x=>x.id===id);
   if(t && t.itemUsed) adjustInventoryUsage(t.itemUsed, null, Number(t.quantity||1), 0);
   state.transactions = state.transactions.filter(t=>t.id!==id);
   markDeleted("transactions", id);
-  saveState(); renderAll();
-  showToast("Job deleted");
+  renderAll();
+  const user = firebase.auth().currentUser;
+  try{
+    if(user && !user.isAnonymous){
+      const batch = db.batch();
+      batch.delete(db.collection("jobs").doc(id));
+      batch.delete(db.collection("salesPrivate").doc(id));
+      // Customer status uses a token as its document ID, so remove any
+      // public status document whose jobId matches this deleted job.
+      const statusSnap = await withTimeout(
+        db.collection("repairStatusPublic").where("jobId","==",id).get(), 10000
+      );
+      statusSnap.docs.forEach(doc=>batch.delete(doc.ref));
+      await withTimeout(batch.commit(), 10000);
+      // Persist the tombstone so later syncs cannot resurrect the deleted job.
+      await syncAppMeta();
+    }
+    writeLocal();
+    showToast("Job deleted");
+  }catch(e){
+    console.error("Job delete failed:",e);
+    showToast("Deleted locally, but cloud deletion failed");
+  }
 }
 
 /* ======================= CALCULATOR ======================= */
