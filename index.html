@@ -1783,6 +1783,23 @@ function applySubscriptionAccess(){
   const active = subscriptionIsActive();
   const user = firebase.auth().currentUser;
   if(!user || user.isAnonymous) return active;
+
+  // Staff access is governed by the same Firestore subscription/branch rules,
+  // but the client must not lock a valid staff session merely because the
+  // subscription read is temporarily unavailable or returns an unknown state.
+  // Admin remains client-gated so the owner sees the suspension screen.
+  if(!active && session.staffUnlocked && !session.isAdmin){
+    if(subscription.status === "suspended" || subscription.status === "expired"){
+      // An explicitly inactive subscription is still enforced.
+      updateNavForRole(null);
+      switchView("license-suspended");
+      const exp = document.getElementById("license-expired-text");
+      if(exp) exp.textContent = subscription.expiresAt ? `Access expired on ${formatLicenseDate(subscription.expiresAt)}.` : "Access is currently suspended.";
+      return false;
+    }
+    return true;
+  }
+
   if(!active){
     session.isAdmin = false;
     session.staffUnlocked = false;
