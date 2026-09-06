@@ -2447,13 +2447,22 @@ function replaceCurrentBranchRecords(records, key){
 // just merged from salesPrivate.
 let realtimeAdminJobs = null;
 let realtimeAdminSales = null;
-function rebuildAdminTransactionsFromRealtime(){
-  if(!Array.isArray(realtimeAdminJobs)) return;
-  const salesById = new Map((realtimeAdminSales || []).map(s=>[s.id,s]));
-  state.transactions = realtimeAdminJobs.map(job=>{
+let realtimeStaffJobs = null;
+let realtimeStaffSales = null;
+function mergeJobSales(jobRecords, saleRecords){
+  const salesById = new Map((saleRecords || []).map(s=>[s.id,s]));
+  return (jobRecords || []).map(job=>{
     const sale = salesById.get(job.id);
     return sale ? {...job, ...sale} : {...job};
   });
+}
+function rebuildAdminTransactionsFromRealtime(){
+  if(!Array.isArray(realtimeAdminJobs)) return;
+  state.transactions = mergeJobSales(realtimeAdminJobs, realtimeAdminSales || []);
+}
+function rebuildStaffTransactionsFromRealtime(){
+  if(!Array.isArray(realtimeStaffJobs)) return;
+  state.transactions = mergeJobSales(realtimeStaffJobs, realtimeStaffSales || []);
 }
 function mergeSalesIntoTransactions(sales){
   realtimeAdminSales = Array.isArray(sales) ? sales : [];
@@ -2466,6 +2475,10 @@ function mergeSalesIntoTransactions(sales){
     });
     state.transactions = [...byId.values()];
   }
+}
+function mergeStaffSalesIntoTransactions(sales){
+  realtimeStaffSales = Array.isArray(sales) ? sales : [];
+  if(Array.isArray(realtimeStaffJobs)) rebuildStaffTransactionsFromRealtime();
 }
 function startRealtimeSync(){
   stopRealtimeSync();
@@ -2550,8 +2563,19 @@ function startRealtimeSync(){
       renderAll();
     });
   }else{
+    realtimeStaffJobs = null;
+    realtimeStaffSales = null;
     watch("jobs", records=>{
-      replaceCurrentBranchRecords(records, "transactions");
+      realtimeStaffJobs = records;
+      rebuildStaffTransactionsFromRealtime();
+      writeLocal();
+      renderAll();
+    });
+    // Staff can VIEW today's sales but cannot edit/delete them. Keep the
+    // jobs and sales snapshots separate so either listener can arrive first
+    // without wiping the financial overlay.
+    watch("salesPrivate", records=>{
+      mergeStaffSalesIntoTransactions(records);
       writeLocal();
       renderAll();
     });
@@ -4364,7 +4388,8 @@ async function saveTxn(id, isAdmin){
         state.transactions = state.transactions.filter(t=>t.id!==newId);
         adjustInventoryUsage(itemUsed, null, quantity, 0);
         console.error("Staff job creation sync failed:", e);
-        showToast("Couldn't save the new job to the cloud");
+        const detail = e?.code || e?.message || "unknown error";
+        showToast(`Cloud save failed: ${detail}`);
         return;
       }
     }
