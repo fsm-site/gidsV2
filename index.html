@@ -488,6 +488,8 @@
   .portal-card{ max-width:720px; margin:0 auto 22px; }
   .portal-result{ padding:18px 20px; border-top:1px solid var(--line); }
   .portal-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:14px; }
+  .customer-name-link,.status-link{ border:0; background:none; padding:0; margin:0; font:inherit; font-weight:800; cursor:pointer; color:var(--accent); text-align:left; }
+  .customer-name-link:hover,.status-link:hover{ text-decoration:underline; }
   .muted-box{ padding:14px 16px; background:var(--panel-2); border:1px solid var(--line); border-radius:10px; color:var(--muted); font-size:12px; }
   @media (max-width:980px){ .analytics-grid{ grid-template-columns:repeat(2,1fr); } }
   @media (max-width:620px){ .analytics-grid{ grid-template-columns:1fr; } .bar-row{ grid-template-columns:105px 1fr 60px; } }
@@ -903,24 +905,20 @@
         </div>
       </div>
 
-      <!-- ================= CUSTOMER STATUS PORTAL ================= -->
+      <!-- ================= REPAIR STATUS ================= -->
       <div class="view" id="view-customer-status">
-        <div class="panel portal-card">
+        <div class="panel">
           <div class="panel-head">
             <div>
-              <h3>REPAIR STATUS &amp; digital receipt</h3>
-              <div class="desc">Customers can check a service or receipt number without staff access.</div>
+              <h3>Repair Status</h3>
+              <div class="desc">Live repair progress for the current branch. Staff can update status only.</div>
             </div>
           </div>
-          <div style="padding:20px;">
-            <div class="field">
-              <label>Service no., receipt no., or phone</label>
-              <input id="portal-query" placeholder="e.g. SVC-0001 or 0917…" onkeydown="if(event.key==='Enter') lookupRepair()">
-            </div>
-            <button class="pill-btn primary" onclick="lookupRepair()">Check repair</button>
-          </div>
-          <div id="portal-result" class="portal-result">
-            <div class="muted-box">Enter the number printed on your job slip or receipt.</div>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Name of Customer</th><th>Tech Assigned</th><th>Date / No.</th><th>Service</th><th>Phone</th><th>Status</th></tr></thead>
+              <tbody id="repair-status-body"></tbody>
+            </table>
           </div>
         </div>
       </div>
@@ -1369,8 +1367,18 @@ function applySubscriptionBranches(){
 const TECHS = ["Tristan","Jaja","Peypey","Kakai"];
 const SERVICE_TYPES = ["Labor","Parts & Accessories"];
 const PAYMENT_MODES = ["Cash","E-Wallet"];
-const JOB_STATUSES = ["New","Diagnosing","Awaiting parts","In repair","Ready for pickup","Completed","Cancelled"];
+const JOB_STATUSES = ["Received","In Repair","Ready for Pickup","Claimed"];
 const LOW_STOCK_THRESHOLD = 3;
+function normalizeJobStatus(status){
+  const raw = String(status || "").trim();
+  const map = {
+    "New":"Received", "Received":"Received",
+    "Diagnosing":"In Repair", "Awaiting parts":"In Repair", "In repair":"In Repair", "In Repair":"In Repair",
+    "Ready for pickup":"Ready for Pickup", "Ready for Pickup":"Ready for Pickup",
+    "Completed":"Claimed", "Claimed":"Claimed", "Cancelled":"Claimed"
+  };
+  return map[raw] || "Received";
+}
 const PHONE_MODELS = {
   "iPhone": [
     "iPhone 17 Pro Max","iPhone 17 Pro","iPhone Air","iPhone 17","iPhone 17e",
@@ -1502,7 +1510,8 @@ function publicRepairStatusRecord(t, branchId){
   return {
     id: token, token, jobId: t.id || "", branchId: branchId || branchIdForName(t.branch || DEFAULT_BRANCH) || "branch1",
     serviceNo: t.serviceNo || serviceNoOf(t),
-    status: t.jobStatus || "New",
+    status: normalizeJobStatus(t.jobStatus),
+    customerName: t.customerName || "",
     device: [t.phoneBrand, t.phoneModel].filter(Boolean).join(" ") || "Device not specified",
     serviceType: t.serviceType || "",
     description: t.description || serviceLabel(t) || "",
@@ -1510,7 +1519,15 @@ function publicRepairStatusRecord(t, branchId){
     encodedAt: Number(t.ts || Date.now()),
     updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
     appointmentAt: t.appointmentAt || "",
-    estimatedCompletion: t.estimatedCompletion || ""
+    estimatedCompletion: t.estimatedCompletion || "",
+    receiptNo: t.receiptNo || receiptNoOf(t),
+    tech: t.tech || "",
+    totalAmount: Number(t.fee || 0),
+    amountPaid: Number(collectedAmount(t) || 0),
+    balance: Number(balanceAmount(t) || 0),
+    paymentMode: t.paymentMode || "—",
+    warrantyDays: 7,
+    warrantyExpires: warrantyExpiryDate(t)
   };
 }
 function itemNameById(id){ const it = state.inventory.find(i=>i.id===id); return it ? it.itemName : (id||"—"); }
@@ -1877,9 +1894,10 @@ function finishStateMigration(){
   state.inventory = (state.inventory || []).map(i=>Object.assign({
     supplier:"", sku:"", barcode:"", reorderLevel:LOW_STOCK_THRESHOLD, location:""
   }, i));
-  state.transactions.forEach(t=>Object.assign(t,{
-    jobStatus:"New", appointmentAt:"", customerPhone:"", customerEmail:"", invoiceStatus:"Paid"
-  }, t));
+  state.transactions.forEach(t=>{
+    Object.assign(t,{jobStatus:normalizeJobStatus(t.jobStatus), appointmentAt:t.appointmentAt||"", customerPhone:t.customerPhone||"", invoiceStatus:t.invoiceStatus||"Paid"}, t);
+    if(Object.prototype.hasOwnProperty.call(t,"customerEmail")){ delete t.customerEmail; }
+  });
   applyDeletionTombstones(state);
   // Local-only: this never pushes to Firestore by itself. The one place
   // that's allowed to write a "default/migrated" state to the cloud is
@@ -3457,11 +3475,54 @@ function removeTechnician(){
 }
 
 /* ======================= RENDER ======================= */
+function renderRepairStatus(){
+  const body = document.getElementById("repair-status-body");
+  if(!body) return;
+  const branch = session.isAdmin ? ui.adminBranch : ui.branch;
+  const rows = (state.transactions || [])
+    .filter(t => t.branch === branch)
+    .sort((a,b)=>Number(b.ts||0)-Number(a.ts||0));
+  body.innerHTML = rows.length ? rows.map(t=>{
+    const status = normalizeJobStatus(t.jobStatus);
+    const name = t.customerName || "Walk-in customer";
+    const service = serviceLabel(t);
+    const dateNo = `${encodedStamp(t)}<div class="stat-sub">${escapeHTML(serviceNoOf(t))}</div>`;
+    const statusControl = session.staffUnlocked && !session.isAdmin
+      ? `<button class="status-link" onclick="openStaffRepairStatusModal('${t.id}')">${escapeHTML(status)}</button>`
+      : `<select class="status-select" onchange="updateJobStatus('${t.id}',this.value)">${JOB_STATUSES.map(st=>`<option value="${st}" ${st===status?"selected":""}>${st}</option>`).join("")}</select>`;
+    return `<tr>
+      <td><button class="customer-name-link" onclick="${session.staffUnlocked&&!session.isAdmin ? `openStaffRepairStatusModal('${t.id}')` : `openReceiptModal('${t.id}')`}">${escapeHTML(name)}</button></td>
+      <td>${escapeHTML(t.tech||"—")}</td>
+      <td>${dateNo}</td>
+      <td>${escapeHTML(service)}</td>
+      <td>${escapeHTML(t.customerPhone||"—")}</td>
+      <td>${statusControl}</td>
+    </tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="6">No repair records for ${escapeHTML(branch)}.</td></tr>`;
+}
+function openStaffRepairStatusModal(id){
+  if(!session.staffUnlocked || session.isAdmin) return;
+  const t = state.transactions.find(x=>x.id===id);
+  if(!t) return;
+  const status = normalizeJobStatus(t.jobStatus);
+  openOverlay(`<h3>${escapeHTML(t.customerName||"Walk-in customer")}</h3>
+    <div class="sub">${escapeHTML(serviceNoOf(t))} · ${escapeHTML(serviceLabel(t))}</div>
+    <div class="muted-box" style="margin-top:12px;">Staff access can update the repair status only. Customer and job details are read-only.</div>
+    <div class="field" style="margin-top:14px;"><label>Repair status</label><select id="staff-repair-status">${JOB_STATUSES.map(st=>`<option value="${st}" ${st===status?"selected":""}>${st}</option>`).join("")}</select></div>
+    <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveStaffRepairStatus('${t.id}')">Update status</button></div>`);
+}
+async function saveStaffRepairStatus(id){
+  const select = document.getElementById("staff-repair-status");
+  if(!select) return;
+  const ok = await updateJobStatus(id, select.value);
+  if(ok) closeOverlay();
+}
 function renderAll(){
   renderEmployeeDashboard();
   renderPublicInventory();
   renderStaffDirectory();
   renderAttendance();
+  renderRepairStatus();
   renderTechSales("employee-tech-sales-body", ui.branch);
   renderLaborSummary("public-labor-body", null);
   if(session.isAdmin){
@@ -4096,8 +4157,8 @@ function renderCollectibles(rows){
 
 function renderAnalytics(monthly){
   const avg = monthly.length ? monthly.reduce((s,t)=>s+collectedAmount(t),0) / monthly.length : 0;
-  const completed = monthly.filter(t=>t.jobStatus==="Completed").length;
-  const open = monthly.filter(t=>!["Completed","Cancelled"].includes(t.jobStatus || "New")).length;
+  const completed = monthly.filter(t=>normalizeJobStatus(t.jobStatus)==="Claimed").length;
+  const open = monthly.filter(t=>!["Claimed"].includes(t.jobStatus || "New")).length;
   const serviceCounts = {};
   monthly.forEach(t=>{ const key = serviceLabel(t).split(" — ")[0]; serviceCounts[key] = (serviceCounts[key]||0)+1; });
   const top = Object.entries(serviceCounts).sort((a,b)=>b[1]-a[1])[0];
@@ -4205,12 +4266,13 @@ function renderAppointments(){
     <td>${escapeHTML(new Date(t.appointmentAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}))}</td>
     <td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.customerPhone||"—")}</td>
     <td>${escapeHTML(serviceNoOf(t))}</td>
-    <td><select class="status-select" onchange="updateJobStatus('${t.id}',this.value)">${JOB_STATUSES.map(s=>`<option ${s===(t.jobStatus||"New")?"selected":""}>${s}</option>`).join("")}</select></td>
+    <td><select class="status-select" onchange="updateJobStatus('${t.id}',this.value)">${JOB_STATUSES.map(s=>`<option ${s===(normalizeJobStatus(t.jobStatus))?"selected":""}>${s}</option>`).join("")}</select></td>
     <td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">Receipt</button></td></tr>`).join("") :
     `<tr class="empty-row"><td colspan="6">No appointments scheduled for ${escapeHTML(ui.adminBranch)}.</td></tr>`;
 }
 async function updateJobStatus(id,status){
   const t=state.transactions.find(x=>x.id===id);
+  status = normalizeJobStatus(status);
   if(!t || !JOB_STATUSES.includes(status)) return;
   const wasStaff = session.staffUnlocked && !session.isAdmin;
   const oldStatus = t.jobStatus;
@@ -4221,15 +4283,26 @@ async function updateJobStatus(id,status){
       writeLocal();
       renderAll();
       showToast("Job status updated");
+      return true;
     }catch(e){
       t.jobStatus = oldStatus;
       writeLocal();
       console.error("Staff job status sync failed:", e);
       showToast("Couldn't update job status in the cloud");
+      return false;
     }
-    return;
   }
-  saveState(); renderAll(); showToast("Job status updated");
+  try{
+    await syncAdminJobTransaction(t, []);
+    writeLocal(); renderAll(); showToast("Job status updated");
+  }catch(e){
+    t.jobStatus = oldStatus;
+    writeLocal(); renderAll();
+    console.error("Admin job status sync failed:", e);
+    showToast("Couldn't update job status in the cloud");
+    return false;
+  }
+  return true;
 }
 function renderCustomerHistory(query=""){
   const body=document.getElementById("customer-history-body");
@@ -4253,7 +4326,7 @@ function openCustomerHistory(id){
   const seed=state.transactions.find(t=>t.id===id); if(!seed) return;
   const jobs=state.transactions.filter(t=>(t.customerName||"Walk-in customer")=== (seed.customerName||"Walk-in customer") && (t.customerPhone||"") === (seed.customerPhone||""));
   openOverlay(`<h3>${escapeHTML(seed.customerName||"Walk-in customer")}</h3><div class="sub">${escapeHTML(seed.customerPhone||"No phone on file")} · ${jobs.length} job${jobs.length===1?"":"s"}</div>
-    <div class="muted-box">${jobs.map(t=>`${escapeHTML(t.date)} · ${escapeHTML(serviceLabel(t))} · Paid ${peso(collectedAmount(t))} · Balance ${peso(balanceAmount(t))} · ${escapeHTML(t.jobStatus||"New")}`).join("<br>")}</div>
+    <div class="muted-box">${jobs.map(t=>`${escapeHTML(t.date)} · ${escapeHTML(serviceLabel(t))} · Paid ${peso(collectedAmount(t))} · Balance ${peso(balanceAmount(t))} · ${escapeHTML(normalizeJobStatus(t.jobStatus))}`).join("<br>")}</div>
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Close</button><button class="pill-btn primary" onclick="openReceiptModal('${seed.id}')">Open latest receipt</button></div>`);
 }
 function renderInvoices(){
@@ -4426,10 +4499,7 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
     <div class="field"><label>Receipt No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div id="receipt-no-preview" style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${receiptNoDisplay}</div></div>
     ${isAdmin ? `<div class="field"><label>Branch</label><select id="f-branch">${branchOptions}</select></div>` : ""}
     <div class="field"><label>Name of customer</label><input id="f-customer" placeholder="Walk-in customer" value="${editing&&editing.customerName?escapeHTML(editing.customerName):""}"></div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-      <div class="field"><label>Customer phone</label><input id="f-customer-phone" type="tel" placeholder="09xx…" value="${editing&&editing.customerPhone?escapeHTML(editing.customerPhone):""}"></div>
-      <div class="field"><label>Customer email <span style="font-weight:400;color:var(--muted)">optional</span></label><input id="f-customer-email" type="email" value="${editing&&editing.customerEmail?escapeHTML(editing.customerEmail):""}"></div>
-    </div>
+    <div class="field"><label>Customer phone</label><input id="f-customer-phone" type="tel" placeholder="09xx…" value="${editing&&editing.customerPhone?escapeHTML(editing.customerPhone):""}"></div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
       <div class="field"><label>Appointment date &amp; time</label><input id="f-appointment" type="datetime-local" value="${editing&&editing.appointmentAt?escapeHTML(editing.appointmentAt):""}"></div>
       <div class="field"><label>Job status</label><select id="f-status">${JOB_STATUSES.map(s=>`<option value="${s}" ${editing&&editing.jobStatus===s?"selected":""}>${s}</option>`).join("")}</select></div>
@@ -4622,7 +4692,6 @@ async function saveTxn(id, isAdmin){
   const serviceType = document.getElementById("f-service").value.trim();
   const customerName = document.getElementById("f-customer").value.trim();
   const customerPhone = document.getElementById("f-customer-phone").value.trim();
-  const customerEmail = document.getElementById("f-customer-email").value.trim();
   const appointmentAt = document.getElementById("f-appointment").value;
   const jobStatus = document.getElementById("f-status").value;
   const invoiceStatus = document.getElementById("f-invoice-status").value;
@@ -4676,7 +4745,8 @@ async function saveTxn(id, isAdmin){
 
   if(id){
     const t = state.transactions.find(x=>x.id===id);
-    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode});
+    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, appointmentAt, jobStatus:normalizeJobStatus(jobStatus), invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode});
+    if(Object.prototype.hasOwnProperty.call(t,"customerEmail")) delete t.customerEmail;
   } else {
     // Real jobs use the persistent 3-digit sequence. Trial jobs are clearly
     // separated and do NOT consume a real Service/Receipt number. This keeps
@@ -4697,7 +4767,7 @@ async function saveTxn(id, isAdmin){
         ? "RCPT-" + String(Date.now()).slice(-8)
         : "RCPT-" + String(seq).padStart(3,"0");
     if(!trialJob) state.nextSeq = seq + 1;
-    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, customerEmail, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
+    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
     state.transactions.push(newJob);
     if(staffCreated){
       try{
@@ -4960,7 +5030,7 @@ function openReceiptModal(id){
 }
 
 function receiptText(t){
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${t.jobStatus||"New"}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nCustomer Tracking No: ${repairStatusTokenOf(t)}\nCustomer Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}\nTerms & Conditions apply.`;
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${normalizeJobStatus(t.jobStatus)}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nCustomer Tracking No: ${repairStatusTokenOf(t)}\nCustomer Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}\nTerms & Conditions apply.`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
@@ -4984,10 +5054,10 @@ function lookupRepair(){
   if(!query){ result.innerHTML=`<div class="muted-box">Enter a service, receipt number, or phone.</div>`; return; }
   const t=state.transactions.slice().reverse().find(x=>[x.serviceNo,x.receiptNo,x.customerPhone].filter(Boolean).some(v=>String(v).toLowerCase()===query || String(v).toLowerCase().includes(query)));
   if(!t){ result.innerHTML=`<div class="muted-box">No repair matched “${escapeHTML(query)}”. Check the number and try again.</div>`; return; }
-  const status=t.jobStatus||"New";
+  const status=normalizeJobStatus(t.jobStatus);
   result.innerHTML=`<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start;">
     <div><div class="stat-label">${escapeHTML(serviceNoOf(t))}</div><h3 style="margin-top:5px;">${escapeHTML(t.description||serviceLabel(t))}</h3><div class="stat-sub">${escapeHTML(t.customerName||"Customer")} · ${escapeHTML(t.date)}</div></div>
-    <span class="tag ${status==="Completed"?"good":"low"}">${escapeHTML(status)}</span></div>
+    <span class="tag ${normalizeJobStatus(status)==="Claimed"?"good":"low"}">${escapeHTML(status)}</span></div>
     <div class="muted-box" style="margin-top:14px;">${t.appointmentAt?`Appointment: <b>${escapeHTML(new Date(t.appointmentAt).toLocaleString())}</b><br>`:""}Receipt <b>${escapeHTML(receiptNoOf(t))}</b> · Total <b>${peso(t.fee)}</b> · Paid <b>${peso(collectedAmount(t))}</b> · Balance <b>${peso(balanceAmount(t))}</b></div>
     <div class="portal-actions"><button class="pill-btn primary" onclick="openReceiptModal('${t.id}')">Digital receipt</button><button class="pill-btn ghost" onclick="copyReceipt('${t.id}')">Copy</button><button class="pill-btn ghost" onclick="shareReceipt('${t.id}')">Share</button></div>`;
 }
@@ -5307,7 +5377,7 @@ function downloadExcelReport(){
     ["Service No","Receipt No","Date","Branch","Tech","Service type","Name of labor","Phone brand","Phone model","Item used","Job status","Appointment","Customer","Description","Quantity","Amount (₱)","Mode of payment","Total Amount / Fee (₱)","Amount Paid (₱)","Balance (₱)"],
     data.jobs.map(t=>[
       serviceNoOf(t), receiptNoOf(t), t.date, t.branch, t.tech, t.serviceType||"", t.laborName||"",
-      t.phoneBrand||"", t.phoneModel||"", itemNameById(t.itemUsed), t.jobStatus||"New", t.appointmentAt||"",
+      t.phoneBrand||"", t.phoneModel||"", itemNameById(t.itemUsed), normalizeJobStatus(t.jobStatus), t.appointmentAt||"",
       t.customerName||"", t.description||"", Number(t.quantity||1), Number(t.amount!=null?t.amount:t.fee),
       t.paymentMode||"", Number(t.fee||0), collectedAmount(t), balanceAmount(t)
     ])
