@@ -4301,9 +4301,20 @@ async function syncRepairStatusCloud(job, status){
     const expires = firebase.firestore.Timestamp.fromMillis(now.toMillis() + (7 * 24 * 60 * 60 * 1000));
     publicData.statusReceivedAt = now;
     publicData.accessExpiresAt = expires;
-  }else if(job.statusReceivedAt){
+  }else if(job.statusReceivedAt && job.accessExpiresAt){
+    // Once the 7-day customer access window exists, every later repair
+    // status keeps the same window. Do not extend it on every status change.
     publicData.statusReceivedAt = job.statusReceivedAt;
-    publicData.accessExpiresAt = job.accessExpiresAt || null;
+    publicData.accessExpiresAt = job.accessExpiresAt;
+  }else{
+    // Legacy/real jobs created before the access-window fields existed may
+    // already be In Repair, Ready for Pickup, or Claimed. When Repair Status
+    // is explicitly updated for such a job, activate the 7-day customer
+    // tracker window now without rewriting the Add Job record.
+    const now = firebase.firestore.Timestamp.now();
+    const expires = firebase.firestore.Timestamp.fromMillis(now.toMillis() + (7 * 24 * 60 * 60 * 1000));
+    publicData.statusReceivedAt = now;
+    publicData.accessExpiresAt = expires;
   }
   const batch = db.batch();
   // Repair Status is intentionally isolated: do not resave the Add Job/sales
@@ -4312,7 +4323,7 @@ async function syncRepairStatusCloud(job, status){
   batch.update(db.collection("jobs").doc(job.id), {jobStatus:normalized});
   batch.set(db.collection("repairStatusPublic").doc(token), publicData, {merge:true});
   await withTimeout(batch.commit(), 10000);
-  if(normalized === "Received"){
+  if(publicData.statusReceivedAt && publicData.accessExpiresAt){
     job.statusReceivedAt = publicData.statusReceivedAt;
     job.accessExpiresAt = publicData.accessExpiresAt;
   }
