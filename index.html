@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#07111f">
-<meta name="description" content="GIDS AYPHONE TECH repair status tracker">
+<meta name="description" content="GIDS AYPHONE TECH REPAIR STATUS TRACKER">
 <title>GIDS AYPHONE TECH — Repair Status</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -27,14 +27,14 @@ body{margin:0;min-height:100vh;font-family:Inter,sans-serif;color:#eef7ff;backgr
     <div class="sub">Customer Repair Status</div>
   </div>
   <div class="card">
-    <div class="label">Repair tracking code</div>
+    <div class="label">Repair tracking number</div>
     <div class="search">
-      <input id="token" autocomplete="off" autocapitalize="characters" placeholder="e.g. GID-7X4K9P2" aria-label="Repair tracking code">
+      <input id="token" autocomplete="off" autocapitalize="characters" placeholder="e.g. GID-7X4K9P2" aria-label="Repair tracking number" inputmode="text">
       <button class="btn" id="checkBtn" type="button">Check status</button>
     </div>
-    <div id="result" aria-live="polite"><div class="empty">Enter the tracking code printed on your receipt.</div></div>
+    <div id="result" aria-live="polite"><div class="empty">Enter the tracking number we gave you.</div></div>
   </div>
-  <div class="footer">GIDS AYPHONE TECH · This page only shows the repair status linked to your tracking code.</div>
+  <div class="footer">GIDS AYPHONE TECH · Enter the tracking number provided by the store to view your repair status.</div>
 </div>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
@@ -89,13 +89,16 @@ function showRecord(data){
     <div class="notice">For questions or pickup instructions, please contact GIDS AYPHONE TECH.</div>`;
 }
 async function check(){
-  const token=input.value.trim().toUpperCase();
-  if(!token){showError("Please enter your repair tracking code.");return;}
+  let token=input.value.trim();
+  const pastedUrlMatch=token.match(/[?&]token=([^&#]+)/i);
+  if(pastedUrlMatch) token=decodeURIComponent(pastedUrlMatch[1]);
+  token=token.trim().toUpperCase();
+  if(!token){showError("Please enter your repair tracking number.");return;}
   if(unsubscribe){unsubscribe();unsubscribe=null;}
   btn.disabled=true; btn.textContent="Checking…";
   try{
     const snap=await db.collection("repairStatusPublic").doc(token).get();
-    if(!snap.exists){showError("No repair status was found for that tracking code. Please check the code on your receipt.");return;}
+    if(!snap.exists){showError("No repair status was found for that tracking number. Please check the number provided by GIDS AYPHONE TECH.");return;}
     showRecord({id:snap.id,...snap.data()});
     unsubscribe=db.collection("repairStatusPublic").doc(token).onSnapshot(s=>{
       if(s.exists) showRecord({id:s.id,...s.data()});
