@@ -2246,18 +2246,10 @@ async function syncOperationalCollections(){
       });
     };
     deleteMirrors("transactions", ["jobs", "salesPrivate"]);
-    // Public status documents use the customer token as their document ID,
-    // so transaction-id tombstones cannot delete them by document ID. Resolve
-    // matching public records by jobId and remove them in the same batch.
-    const deletedTransactionIds = new Set((deleted.transactions || []).filter(Boolean));
-    if(deletedTransactionIds.size){
-      const publicStatusSnap = await withTimeout(
-        db.collection("repairStatusPublic").where("branchId","==",branchId).get(), 10000
-      );
-      publicStatusSnap.docs.forEach(doc=>{
-        if(deletedTransactionIds.has(doc.data()?.jobId)) batch.delete(doc.ref);
-      });
-    }
+    // Customer status documents use the tracking token as their document ID,
+    // so deletion is handled directly in deleteTxn() when the Admin removes a
+    // job. Do NOT query repairStatusPublic here: its Firestore list permission
+    // is intentionally denied to prevent collection enumeration.
     deleteMirrors("inventory", ["inventoryPrivate", "inventoryPublic"]);
     deleteMirrors("suppliers", ["suppliers"]);
     deleteMirrors("staffProfiles", ["staffProfiles"]);
@@ -4662,12 +4654,14 @@ async function deleteTxn(id){
       const batch = db.batch();
       batch.delete(db.collection("jobs").doc(id));
       batch.delete(db.collection("salesPrivate").doc(id));
-      // Customer status uses a token as its document ID, so remove any
-      // public status document whose jobId matches this deleted job.
-      const statusSnap = await withTimeout(
-        db.collection("repairStatusPublic").where("jobId","==",id).get(), 10000
-      );
-      statusSnap.docs.forEach(doc=>batch.delete(doc.ref));
+      // Customer status uses the high-entropy tracking token as its document ID.
+      // Delete the status document directly by token so this operation does not
+      // require a public-status collection query. Collection listing is denied
+      // by Firestore rules for customer privacy.
+      const statusToken = t?.statusToken ? String(t.statusToken) : "";
+      if(statusToken){
+        batch.delete(db.collection("repairStatusPublic").doc(statusToken));
+      }
       await withTimeout(batch.commit(), 10000);
       // Persist the tombstone so later syncs cannot resurrect the deleted job.
       await syncAppMeta();
