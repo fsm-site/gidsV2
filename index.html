@@ -2896,17 +2896,14 @@ function startRealtimeSync(){
       writeLocal();
       renderAll();
     });
-    try{
-      const unsubStaffPublic = db.collection("staffPublic").where("branchId","==",branchId).onSnapshot(
-        snap=>{
-          state.staffProfiles = snap.docs.map(doc=>({id:doc.id,...doc.data()}));
-          writeLocal();
-          renderAll();
-        },
-        err=>console.error("Realtime staff public directory sync failed:", err)
-      );
-      realtimeUnsubs.push(unsubStaffPublic);
-    }catch(e){ console.error("Could not start staff public directory sync:", e); }
+    // Staff directory is authenticated operational data. Use the same
+    // staffProfiles collection as Admin so an empty/stale public mirror
+    // can never overwrite the real Staff directory with zero records.
+    watch("staffProfiles", records=>{
+      state.staffProfiles = records;
+      writeLocal();
+      renderAll();
+    });
     // Technician names are branch-scoped and shared with Staff as the same
     // cloud-authoritative directory used by Admin.
     try{
@@ -4183,10 +4180,19 @@ async function deleteStaffProfile(id){
   markDeleted("staffProfiles", id);
   renderStaffDirectory();
   try{
-    const batch = db.batch();
-    batch.delete(db.collection("staffProfiles").doc(id));
-    batch.delete(db.collection("staffPublic").doc(id));
-    await withTimeout(batch.commit(), 10000);
+    // Remove the authenticated operational profile first. Staff reads this
+    // same collection, so directory removal must not depend on the optional
+    // public mirror being writable.
+    await withTimeout(db.collection("staffProfiles").doc(id).delete(), 10000);
+
+    // Best-effort cleanup of the public mirror. A stale mirror must never
+    // block removal from the real Staff/Admin directory.
+    try{
+      await withTimeout(db.collection("staffPublic").doc(id).delete(), 10000);
+    }catch(publicErr){
+      console.warn("Public staff mirror cleanup deferred:", publicErr);
+    }
+
     writeLocal();
     showToast("Staff profile removed and synced");
   }catch(e){
