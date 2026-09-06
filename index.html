@@ -4816,11 +4816,13 @@ async function saveTxn(id, isAdmin){
       : staffCreated
         ? "SVC-" + String(Date.now()).slice(-8)
         : "SVC-" + String(seq).padStart(3,"0");
+    // Receipt No. is intentionally derived from the Service No. so the two
+    // identifiers always share the exact same sequence/token. This keeps
+    // Admin and Staff cloud records consistent and avoids independent
+    // numbering drift between service and receipt records.
     const receiptNo = trialJob
       ? trialTrackingNo("RCPT")
-      : staffCreated
-        ? "RCPT-" + String(Date.now()).slice(-8)
-        : "RCPT-" + String(seq).padStart(3,"0");
+      : serviceNo.replace(/^SVC-/, "RCPT-");
     if(!trialJob) state.nextSeq = seq + 1;
     const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, clientTip, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
     state.transactions.push(newJob);
