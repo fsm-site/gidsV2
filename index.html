@@ -1934,7 +1934,8 @@ async function syncStaffAttendanceOnly(){
 
 async function createStaffJobInCollection(job){
   const user = firebase.auth().currentUser;
-  if(!user || user.isAnonymous || !session.staffUnlocked || session.isAdmin) throw new Error("Staff authentication required");
+  if(!user || user.isAnonymous) throw new Error("Staff Firebase session missing. Please sign in again.");
+  if(!session.staffUnlocked || session.isAdmin) throw new Error("Staff app session is not active. Please sign in again.");
   const branchId = currentBranchId();
   const publicJob = {...job, branch: ui?.branch || DEFAULT_BRANCH, branchId, createdByUid:user.uid};
   delete publicJob.fee;
@@ -1980,7 +1981,8 @@ async function createStaffJobInCollection(job){
 
 async function updateStaffJobStatusInCollection(id,status){
   const user = firebase.auth().currentUser;
-  if(!user || user.isAnonymous || !session.staffUnlocked || session.isAdmin) throw new Error("Staff authentication required");
+  if(!user || user.isAnonymous) throw new Error("Staff Firebase session missing. Please sign in again.");
+  if(!session.staffUnlocked || session.isAdmin) throw new Error("Staff app session is not active. Please sign in again.");
   await withTimeout(db.collection("jobs").doc(id).update({jobStatus:status}),10000);
 }
 
@@ -2296,17 +2298,25 @@ async function loadStaffOperationalCollections(){
   if(!user || user.isAnonymous || !session.staffUnlocked || session.isAdmin) return false;
   const branchId = currentBranchId();
   try{
-    const [jobsSnap, inventorySnap] = await Promise.all([
+    const [jobsSnap, salesSnap, inventorySnap] = await Promise.all([
       withTimeout(db.collection("jobs").where("branchId","==",branchId).get(), 10000),
+      withTimeout(db.collection("salesPrivate").where("branchId","==",branchId).get(), 10000),
       withTimeout(db.collection("inventoryPublic").where("branchId","==",branchId).get(), 10000)
     ]);
     const jobs = jobsSnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId}));
+    const sales = salesSnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId}));
     const inventory = inventorySnap.docs.map(doc=>({id:doc.id, ...doc.data(), branchId:doc.data()?.branchId || branchId}));
 
-    // Staff gets operational data from the dedicated public collections.
-    // Jobs deliberately contain no financial fields; inventoryPublic contains
-    // only the fields Staff is permitted to see.
-    if(jobs.length) state.transactions = jobs;
+    // Staff gets operational jobs plus a read-only financial overlay.
+    // The sales collection is readable but not writable for edits/deletes.
+    if(jobs.length || sales.length){
+      const byId = new Map(jobs.map(j=>[j.id,j]));
+      sales.forEach(sale=>{
+        const old = byId.get(sale.id) || {};
+        byId.set(sale.id, {...old, ...sale});
+      });
+      state.transactions = [...byId.values()];
+    }
     if(inventory.length) state.inventory = inventory;
     writeLocal();
     return true;
