@@ -4742,8 +4742,7 @@ async function saveTxn(id, isAdmin){
   const date = document.getElementById("f-date").value || todayStr();
   const paymentMode = document.getElementById("f-payment").value.trim();
   const clientTipRaw = document.getElementById("f-client-tip").value.trim();
-  if(clientTipRaw === ""){ showToast("Client Tip is required"); return; }
-  const clientTip = Number(clientTipRaw);
+  const clientTip = clientTipRaw === "" ? 0 : Number(clientTipRaw);
   if(!Number.isFinite(clientTip) || clientTip < 0){ showToast("Enter a valid Client Tip amount"); return; }
   recalcTotal();
   const fee = Number(document.getElementById("f-fee").value || 0);
