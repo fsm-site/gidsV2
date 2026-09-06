@@ -2402,6 +2402,135 @@ async function loadPublicStaffProfiles(){
   }
 }
 
+
+/* ======================= REAL-TIME CLOUD SYNC ======================= */
+let realtimeUnsubs = [];
+function stopRealtimeSync(){
+  realtimeUnsubs.forEach(unsub=>{ try{ unsub(); }catch(e){} });
+  realtimeUnsubs = [];
+}
+function replaceCurrentBranchRecords(records, key){
+  const branchId = currentBranchId();
+  const other = (state[key] || []).filter(r => (r?.branchId || branchId) !== branchId);
+  state[key] = [...other, ...(records || [])];
+}
+function mergeSalesIntoTransactions(sales){
+  const byId = new Map((state.transactions || []).map(t=>[t.id,t]));
+  (sales || []).forEach(s=>{
+    const old = byId.get(s.id) || {};
+    byId.set(s.id, {...old, ...s});
+  });
+  state.transactions = [...byId.values()];
+}
+function startRealtimeSync(){
+  stopRealtimeSync();
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous || !subscriptionIsActive()) return;
+  const branchId = currentBranchId();
+  const role = session.isAdmin ? "admin" : (session.staffUnlocked ? "staff" : null);
+  if(!role) return;
+
+  const watch = (collectionName, callback) => {
+    try{
+      const unsub = db.collection(collectionName)
+        .where("branchId","==",branchId)
+        .onSnapshot(
+          snap => { callback(snap.docs.map(doc=>({id:doc.id,...doc.data()}))); },
+          err => console.error(`Realtime ${collectionName} sync failed:`, err)
+        );
+      realtimeUnsubs.push(unsub);
+    }catch(e){ console.error(`Could not start realtime ${collectionName} sync:`, e); }
+  };
+
+  if(role === "admin"){
+    watch("jobs", records=>{
+      replaceCurrentBranchRecords(records, "transactions");
+      writeLocal();
+      renderAll();
+    });
+    watch("salesPrivate", records=>{
+      mergeSalesIntoTransactions(records);
+      writeLocal();
+      renderAll();
+    });
+    watch("inventoryPrivate", records=>{
+      state.inventory = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("staffProfiles", records=>{
+      state.staffProfiles = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("staffAccounts", records=>{
+      state.staffAccounts = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("adminAccounts", records=>{
+      state.adminAccounts = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("suppliers", records=>{
+      state.suppliers = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("stockMovements", records=>{
+      state.stockMovements = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("purchaseOrders", records=>{
+      state.purchaseOrders = records;
+      writeLocal();
+      renderAll();
+    });
+    watch("commissionRates", records=>{
+      state.commissionRates = {};
+      records.forEach(doc=>{ const tech=doc.tech || doc.id; if(tech) state.commissionRates[tech]=Number(doc.rate||0); });
+      writeLocal();
+      renderAll();
+    });
+    // Attendance uses a uid-specific query for Staff, but Admin can safely watch the branch.
+    watch("attendance", records=>{
+      const other = (state.attendance || []).filter(r => (r?.branchId || branchId) !== branchId);
+      state.attendance = [...other, ...records];
+      writeLocal();
+      renderAll();
+    });
+  }else{
+    watch("jobs", records=>{
+      replaceCurrentBranchRecords(records, "transactions");
+      writeLocal();
+      renderAll();
+    });
+    watch("inventoryPublic", records=>{
+      state.inventory = records;
+      writeLocal();
+      renderAll();
+    });
+    // Staff should see only their own attendance in realtime.
+    try{
+      const unsub = db.collection("attendance")
+        .where("uid","==",user.uid)
+        .onSnapshot(
+          snap=>{
+            const own = snap.docs.map(doc=>({id:doc.id,...doc.data()})).filter(r=>(r.branchId||branchId)===branchId);
+            const other = (state.attendance||[]).filter(r=>(r?.branchId||branchId)!==branchId || r.uid!==user.uid);
+            state.attendance = [...other,...own];
+            writeLocal();
+            renderAll();
+          },
+          err=>console.error("Realtime staff attendance sync failed:",err)
+        );
+      realtimeUnsubs.push(unsub);
+    }catch(e){ console.error("Could not start realtime attendance sync:",e); }
+  }
+}
+
 /* ======================= INIT ======================= */
 async function init(){
   document.getElementById("today-label").textContent = getToday().toLocaleDateString(undefined,{weekday:'short', year:'numeric', month:'short', day:'numeric'});
@@ -2415,7 +2544,21 @@ async function init(){
   await loadPublicStaffProfiles();
   const restoredView = restoreBrowserSession();
   const restoredRole = await restoreAuthenticatedSession();
-  if(restoredRole){ await loadSubscription(); }
+  if(restoredRole){
+    await loadSubscription();
+    if(subscriptionIsActive()){
+      if(restoredRole === "admin") {
+        await loadAdminCollections();
+        await loadAttendanceFromCollection();
+        startRealtimeSync();
+      }else if(restoredRole === "staff") {
+        await loadStaffCollections();
+        await loadStaffOperationalCollections();
+        await loadAttendanceFromCollection();
+        startRealtimeSync();
+      }
+    }
+  }
   const repBranch = document.getElementById("rep-branch");
   if(repBranch) repBranch.innerHTML = `<option value="__all__">All active branches</option>` + activeBranches().map(b=>`<option value="${escapeHTML(b)}">${escapeHTML(b)}</option>`).join("");
   bindNav();
@@ -2781,6 +2924,7 @@ async function attemptLogin(){
     await syncOperationalCollections();
     // Complete the one-time legacy -> dedicated source migration checkpoint.
     await syncAppMeta();
+    startRealtimeSync();
     // Refresh the admin display name after collection-backed profiles load.
     const refreshedAdmin = (state.adminAccounts || []).find(item =>
       (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
@@ -2878,6 +3022,7 @@ async function attemptStaffLogin(){
     await loadStaffCollections();
     await loadStaffOperationalCollections();
     await loadAttendanceFromCollection();
+    startRealtimeSync();
     updateNavForRole("staff");
     if(document.getElementById("remember-staff").checked) saveRememberedSession("staff");
     err.textContent = "";
@@ -2937,6 +3082,7 @@ async function logout(){
   clearInterval(licenseAlertTimer);
   clearRememberedSession();
   clearBrowserSession();
+  stopRealtimeSync();
   updateNavForRole(null);
   try{
     await withTimeout(firebase.auth().signOut(), 8000);
