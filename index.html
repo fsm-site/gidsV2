@@ -1941,14 +1941,41 @@ async function createStaffJobInCollection(job){
   delete publicJob.amountPaid;
   delete publicJob.balance;
   delete publicJob.paymentMode;
-  await withTimeout(db.collection("jobs").doc(job.id).set(publicJob, {merge:true}), 10000);
+
+  // Staff may create a sale as part of creating a job, but cannot read,
+  // edit, or delete salesPrivate records. This keeps financial data hidden
+  // from Staff while still allowing their newly-created jobs to appear in
+  // the Admin sales dashboard in realtime.
+  const saleRecord = {
+    id: job.id,
+    branchId,
+    date: job.date || todayStr(),
+    ts: Number(job.ts || Date.now()),
+    serviceNo: job.serviceNo || "",
+    receiptNo: job.receiptNo || "",
+    tech: job.tech || "",
+    customerName: job.customerName || "",
+    fee: Number(job.fee || 0),
+    amount: Number(job.amount || 0),
+    amountPaid: Number(job.amountPaid || 0),
+    balance: Number(job.balance || 0),
+    invoiceStatus: job.invoiceStatus || "",
+    paymentMode: job.paymentMode || "",
+    createdByUid: user.uid
+  };
+
+  const batch = db.batch();
+  batch.set(db.collection("jobs").doc(job.id), publicJob, {merge:true});
+  batch.set(db.collection("salesPrivate").doc(job.id), saleRecord, {merge:true});
 
   if(job.itemUsed){
     const item = state.inventory.find(i=>i.id===job.itemUsed);
     if(item){
-      await withTimeout(db.collection("inventoryPublic").doc(item.id).update({used:Number(item.used||0), branchId}),10000);
+      batch.set(db.collection("inventoryPublic").doc(item.id), {used:Number(item.used||0), branchId}, {merge:true});
     }
   }
+
+  await withTimeout(batch.commit(), 10000);
 }
 
 async function updateStaffJobStatusInCollection(id,status){
@@ -2414,13 +2441,31 @@ function replaceCurrentBranchRecords(records, key){
   const other = (state[key] || []).filter(r => (r?.branchId || branchId) !== branchId);
   state[key] = [...other, ...(records || [])];
 }
-function mergeSalesIntoTransactions(sales){
-  const byId = new Map((state.transactions || []).map(t=>[t.id,t]));
-  (sales || []).forEach(s=>{
-    const old = byId.get(s.id) || {};
-    byId.set(s.id, {...old, ...s});
+// Realtime Admin keeps the operational jobs and private financial sales as
+// separate snapshots, then rebuilds transactions deterministically. This
+// prevents a later jobs snapshot from wiping the financial fields that were
+// just merged from salesPrivate.
+let realtimeAdminJobs = null;
+let realtimeAdminSales = null;
+function rebuildAdminTransactionsFromRealtime(){
+  if(!Array.isArray(realtimeAdminJobs)) return;
+  const salesById = new Map((realtimeAdminSales || []).map(s=>[s.id,s]));
+  state.transactions = realtimeAdminJobs.map(job=>{
+    const sale = salesById.get(job.id);
+    return sale ? {...job, ...sale} : {...job};
   });
-  state.transactions = [...byId.values()];
+}
+function mergeSalesIntoTransactions(sales){
+  realtimeAdminSales = Array.isArray(sales) ? sales : [];
+  if(Array.isArray(realtimeAdminJobs)) rebuildAdminTransactionsFromRealtime();
+  else {
+    const byId = new Map((state.transactions || []).map(t=>[t.id,t]));
+    realtimeAdminSales.forEach(s=>{
+      const old = byId.get(s.id) || {};
+      byId.set(s.id, {...old, ...s});
+    });
+    state.transactions = [...byId.values()];
+  }
 }
 function startRealtimeSync(){
   stopRealtimeSync();
@@ -2443,8 +2488,11 @@ function startRealtimeSync(){
   };
 
   if(role === "admin"){
+    realtimeAdminJobs = null;
+    realtimeAdminSales = null;
     watch("jobs", records=>{
-      replaceCurrentBranchRecords(records, "transactions");
+      realtimeAdminJobs = records;
+      rebuildAdminTransactionsFromRealtime();
       writeLocal();
       renderAll();
     });
