@@ -2270,6 +2270,42 @@ async function loadAppMeta(){
   }
 }
 
+async function syncTechnicianDirectory(){
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous || !session.isAdmin) return;
+  const branchId = currentBranchId();
+  const technicians = Array.isArray(state.technicians) ? state.technicians.map(t=>String(t).trim()).filter(Boolean) : [];
+  await withTimeout(db.collection("techniciansPublic").doc(branchId).set({
+    id: branchId,
+    branchId,
+    technicians,
+    updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+    updatedByUid: user.uid
+  }, {merge:true}), 10000);
+}
+
+async function loadTechnicianDirectory(){
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous || (!session.isAdmin && !session.staffUnlocked)) return false;
+  const branchId = currentBranchId();
+  try{
+    const snap = await withTimeout(db.collection("techniciansPublic").doc(branchId).get(), 10000);
+    if(!snap.exists) return false;
+    const data = snap.data() || {};
+    if(Array.isArray(data.technicians)){
+      const technicians = data.technicians.map(t=>String(t).trim()).filter(Boolean);
+      TECHS.splice(0, TECHS.length, ...technicians);
+      state.technicians = [...technicians];
+      writeLocal();
+      renderAll();
+    }
+    return true;
+  }catch(e){
+    console.error("Could not load technician directory:", e);
+    return false;
+  }
+}
+
 async function syncOperationalCollections(){
   const user = firebase.auth().currentUser;
   if(!user || user.isAnonymous) return;
@@ -2623,6 +2659,7 @@ async function saveState(){
       // Admin writes now target dedicated collections + appMeta. The legacy
       // app-data document is retained only as a one-time migration source.
       await syncAppMeta();
+      await syncTechnicianDirectory();
       await syncAttendanceToCollection();
       await syncOperationalCollections();
       writeLocal();
@@ -2814,6 +2851,46 @@ function startRealtimeSync(){
       writeLocal();
       renderAll();
     });
+    // Technician names are branch-scoped and shared with Staff as the same
+    // cloud-authoritative directory used by Admin.
+    try{
+      const unsubTech = db.collection("techniciansPublic").doc(branchId).onSnapshot(
+        snap=>{
+          const data = snap.exists ? (snap.data() || {}) : {};
+          if(Array.isArray(data.technicians)){
+            const technicians = data.technicians.map(t=>String(t).trim()).filter(Boolean);
+            TECHS.splice(0, TECHS.length, ...technicians);
+            state.technicians = [...technicians];
+            writeLocal();
+            renderAll();
+          }
+        },
+        err=>console.error("Realtime staff technician directory sync failed:", err)
+      );
+      realtimeUnsubs.push(unsubTech);
+    }catch(e){ console.error("Could not start staff technician directory sync:", e); }
+    // Keep the signed-in Staff technician assignment synchronized too, so an
+    // Admin rename/reassignment is reflected without requiring a new login.
+    try{
+      const unsubStaffAccount = db.collection("staffAccounts")
+        .where("email","==",(user.email || "").trim().toLowerCase())
+        .onSnapshot(
+          snap=>{
+            const account = snap.docs.map(doc=>({id:doc.id,...doc.data()}))[0];
+            if(account){
+              const previous = session.staffTechnician;
+              session.staffTechnician = account.technician || session.staffTechnician || "";
+              const byId = new Map((state.staffAccounts || []).map(a=>[a.id,a]));
+              byId.set(account.id, {...account, branchId:account.branchId || branchId, email:(account.email || user.email || "").trim().toLowerCase()});
+              state.staffAccounts = [...byId.values()];
+              writeLocal();
+              if(previous !== session.staffTechnician) renderAll();
+            }
+          },
+          err=>console.error("Realtime staff account sync failed:", err)
+        );
+      realtimeUnsubs.push(unsubStaffAccount);
+    }catch(e){ console.error("Could not start staff account realtime sync:", e); }
     // Staff should see only their own attendance in realtime.
     try{
       const unsub = db.collection("attendance")
@@ -2851,11 +2928,15 @@ async function init(){
     if(subscriptionIsActive()){
       if(restoredRole === "admin") {
         await loadAdminCollections();
+        // Admin is authoritative from appMeta/dedicated collections. Publish
+        // the current technician list for Staff after the Admin state is loaded.
+        await syncTechnicianDirectory();
         await loadAttendanceFromCollection();
         startRealtimeSync();
       }else if(restoredRole === "staff") {
         await loadStaffCollections();
         await loadStaffOperationalCollections();
+        await loadTechnicianDirectory();
         await loadAttendanceFromCollection();
         startRealtimeSync();
       }
