@@ -3942,18 +3942,21 @@ function renderAttendance(){
   if(!select || !body || !status || !dateLabel) return;
   if(actionsHead) actionsHead.style.display = session.isAdmin ? "table-cell" : "none";
   const current = select.value;
-  // Keep the Staff dropdown synchronized with the same live technician
-  // directory shown to Admin. Staff may still act only on their own
-  // attendance record; other technicians are displayed but disabled.
+  // Staff attendance is self-service: Staff sees only their own technician
+  // identity in this control and may check in/out. Staff cannot edit or delete
+  // attendance records; those controls remain Admin-only below. Admin sees the
+  // full current technician directory.
   const attendanceTechs = Array.isArray(TECHS) ? [...TECHS] : [];
   const staffTech = String(session.staffTechnician || '').trim();
-  select.innerHTML = attendanceTechs.map(tech=>{
-    const disabled = !session.isAdmin && tech !== staffTech ? ' disabled' : '';
-    return `<option value="${escapeHTML(tech)}"${disabled}>${escapeHTML(tech)}${disabled ? ' — view only' : ''}</option>`;
-  }).join("");
-  if(!session.isAdmin && staffTech && attendanceTechs.includes(staffTech)) select.value = staffTech;
-  else if(attendanceTechs.includes(current)) select.value = current;
-  else if(attendanceTechs.length) select.value = attendanceTechs[0];
+  const visibleAttendanceTechs = session.isAdmin
+    ? attendanceTechs
+    : (staffTech && attendanceTechs.includes(staffTech) ? [staffTech] : []);
+  select.innerHTML = visibleAttendanceTechs.length
+    ? visibleAttendanceTechs.map(tech=>`<option value="${escapeHTML(tech)}">${escapeHTML(tech)}</option>`).join("")
+    : `<option value="">${session.isAdmin ? 'No technicians available' : 'Staff technician access not assigned'}</option>`;
+  if(!session.isAdmin && staffTech && visibleAttendanceTechs.includes(staffTech)) select.value = staffTech;
+  else if(visibleAttendanceTechs.includes(current)) select.value = current;
+  else if(visibleAttendanceTechs.length) select.value = visibleAttendanceTechs[0];
   dateLabel.textContent = getToday().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
   const selectedRecord = attendanceForToday().find(record=>record.tech===select.value);
   status.className = `attendance-status${selectedRecord && selectedRecord.checkIn && !selectedRecord.checkOut ? " present" : ""}`;
