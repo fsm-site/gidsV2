@@ -1365,10 +1365,10 @@
           </div>
           <div class="panel">
             <div class="panel-head">
-              <div><h3>Admin access</h3><div class="desc">Manage administrator usernames and passwords.</div></div>
+              <div><h3>Admin access</h3><div class="desc">Manage administrator access and Firebase emails.</div></div>
               <button class="pill-btn primary" onclick="openAdminAccountModal()">+ Add admin</button>
             </div>
-            <table><thead><tr><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
+            <table><thead><tr><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
           </div>
         </div>
       </div>
@@ -3814,7 +3814,7 @@ function renderAdminAccess(){
   if(!body || !session.isAdmin) return;
   state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   const accounts = state.adminAccounts || [];
-  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
+  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.email || "—")}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
 }
 
 function openAdminNameModal(currentUsername){
@@ -3890,38 +3890,65 @@ function openAdminAccountModal(username=""){
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminAccount('${editing ? escapeHTML(editing.username) : ""}')">Save profile</button></div>`);
 }
 
-function saveAdminAccount(oldUsername){
+async function saveAdminAccount(oldUsername){
   if(!session.isAdmin) return;
   const username = document.getElementById("admin-account-username").value.trim();
   const email = document.getElementById("admin-account-email").value.trim().toLowerCase();
   const error = document.getElementById("admin-account-error");
   if(!username || !email){ error.textContent = "Display name and Firebase email are required."; return; }
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ error.textContent = "Enter a valid Firebase email."; return; }
-  if(state.adminAccounts.some(account=>account.username!==oldUsername && account.username.toLowerCase()===username.toLowerCase())){ error.textContent = "That display name is already assigned."; return; }
   if(state.adminAccounts.some(account=>account.username!==oldUsername && (account.email||"").toLowerCase()===email)){ error.textContent = "That Firebase email is already assigned."; return; }
-  if(oldUsername){
-    const account = state.adminAccounts.find(item=>item.username===oldUsername);
-    if(account) Object.assign(account,{username,email});
-  } else {
-    state.adminAccounts.push({id:stableAdminDocId({email, username}), username, email, branchId:currentBranchId()});
-    state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
-  }
+  const account = oldUsername
+    ? state.adminAccounts.find(item=>item.username===oldUsername)
+    : {id:stableAdminDocId({email, username}), username, email, branchId:currentBranchId()};
+  if(!account){ error.textContent = "Admin account not found."; return; }
+  const previousEmail = account.email || "";
+  Object.assign(account,{username,email,branchId:account.branchId || currentBranchId()});
+  if(!oldUsername) state.adminAccounts.push(account);
+  state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   if(oldUsername && oldUsername!==username){
     if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
     if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
   }
-  if(session.adminUsername===oldUsername) session.adminUsername = username;
-  state.admin = {uid:firebase.auth().currentUser?.uid || "", email:firebase.auth().currentUser?.email || email, username:session.adminUsername || username};
-  saveState(); closeOverlay(); renderAdminAccess(); showToast("Admin profile updated");
+  try{
+    const ref = db.collection("adminAccounts").doc(account.id || stableAdminDocId(account));
+    account.id = account.id || ref.id;
+    await withTimeout(ref.set({...account, branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
+    // If the Firebase email itself was changed in this profile, the Firebase
+    // Authentication account must also use that email. This screen only stores
+    // the mapping; it never changes Firebase Auth credentials.
+    writeLocal();
+    if(session.adminUsername===oldUsername) session.adminUsername = username;
+    state.admin = {uid:firebase.auth().currentUser?.uid || "", email:firebase.auth().currentUser?.email || previousEmail || email, username:session.adminUsername || username};
+    closeOverlay();
+    renderAdminAccess();
+    showToast(oldUsername ? "Admin access updated" : "Admin access assigned");
+  }catch(e){
+    console.error("Could not save admin access:", e);
+    error.textContent = "Could not save Admin Access to the cloud. Please try again.";
+  }
 }
 
-function deleteAdminAccount(username){
+async function deleteAdminAccount(username){
   if(!session.isAdmin || state.adminAccounts.length<=1 || !confirm("Revoke this admin access?")) return;
-  state.adminAccounts = state.adminAccounts.filter(account=>account.username!==username);
-  if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
-  if(!state.removedAdminUsernames.includes(username)) state.removedAdminUsernames.push(username);
-  if(session.adminUsername===username){ logout(); return; }
-  saveState(); renderAdminAccess(); showToast("Admin access revoked");
+  const account = state.adminAccounts.find(item=>item.username===username);
+  if(!account) return;
+  if(session.adminUsername===username){
+    showToast("You cannot revoke the admin account currently in use");
+    return;
+  }
+  try{
+    await withTimeout(db.collection("adminAccounts").doc(account.id || stableAdminDocId(account)).delete(), 10000);
+    state.adminAccounts = state.adminAccounts.filter(item=>item.username!==username);
+    if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+    if(!state.removedAdminUsernames.includes(username)) state.removedAdminUsernames.push(username);
+    writeLocal();
+    renderAdminAccess();
+    showToast("Admin access revoked");
+  }catch(e){
+    console.error("Could not revoke admin access:", e);
+    showToast("Could not revoke Admin Access from the cloud");
+  }
 }
 
 function openStaffAccountModal(editId="", technician=""){
