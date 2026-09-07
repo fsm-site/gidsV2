@@ -1367,7 +1367,10 @@
         <div class="panel">
           <div class="panel-head">
             <div><h3>Security and Access</h3><div class="desc" id="security-access-desc">Admin-only access controls.</div></div>
-            <button class="pill-btn ghost" type="button" onclick="switchView('admin')">Back to dashboard</button>
+            <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+              <button class="pill-btn ghost" type="button" onclick="switchView('admin')">Back to dashboard</button>
+              <button class="pill-btn danger" type="button" onclick="logout()">Log out</button>
+            </div>
           </div>
           <div class="panel" style="margin:16px;">
             <div class="panel-head">
