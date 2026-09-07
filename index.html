@@ -1936,6 +1936,32 @@ function applySubscriptionAccess(){
   return true;
 }
 
+function defaultState(){
+  return {
+    branch: DEFAULT_BRANCH,
+    branchConfig: Object.fromEntries(Object.entries(BRANCH_CONFIG).map(([name,cfg])=>[name,{...cfg}])),
+    activeBranches: [...ACTIVE_BRANCHES],
+    nextSeq: 1,
+    numberingResetKey: "trial-numbering-reset-20260906",
+    transactions: [],
+    inventory: [],
+    suppliers: [],
+    stockMovements: [],
+    staffProfiles: [],
+    attendance: [],
+    staffAccounts: [],
+    adminAccounts: [],
+    purchaseOrders: [],
+    commissionRates: {},
+    technicians: [...TECHS],
+    deletedRecords: {},
+    removedTechnicians: [],
+    removedAdminUsernames: [],
+    admin: null,
+    subscription: {...subscription}
+  };
+}
+
 function loadState(){
   // Show the UI instantly using whatever is cached locally; Firebase syncs in the background.
   state = readLocal() || defaultState();
