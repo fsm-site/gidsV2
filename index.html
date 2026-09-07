@@ -413,7 +413,7 @@
     transform:scale(1.5);
   }
   #app-splash.hide{ opacity:0; pointer-events:none; }
-  .splash-loader{ position:absolute; z-index:2; bottom:12%; width:min(340px,78vw); padding:12px 16px 10px; color:#c8efff; text-align:center; font-family:'Inter',sans-serif; text-shadow:0 1px 10px rgba(103,199,255,.35); background:rgba(0,0,0,.82); border:1px solid rgba(157,221,255,.35); border-radius:8px; box-shadow:0 0 24px rgba(0,0,0,.7); }
+  .splash-loader{ width:min(340px,78vw); color:#c8efff; text-align:center; font-family:'Inter',sans-serif; text-shadow:0 1px 10px rgba(103,199,255,.35); }
   .splash-status{ display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; font-weight:800; letter-spacing:2.4px; margin-bottom:10px; color:#fff; text-shadow:0 0 12px rgba(103,199,255,.9); }
   .splash-status::before{ content:""; width:6px; height:6px; border-radius:50%; background:#67c7ff; box-shadow:0 0 10px #67c7ff; animation:splashPulse .8s ease-in-out infinite alternate; }
   .splash-track{ height:6px; overflow:hidden; border:1px solid rgba(157,221,255,.7); background:rgba(157,221,255,.2); border-radius:5px; }
@@ -3147,6 +3147,26 @@ function prepareHeroWatermark(source, target){
     target.src = canvas.toDataURL("image/png");
   };
   image.src = source;
+}
+
+function applyThemeToggleUI(theme){
+  const nextTheme = theme === "dark" ? "light" : "dark";
+  const label = document.getElementById("theme-toggle-label");
+  const icon = document.getElementById("theme-toggle-icon");
+  if(label) label.textContent = nextTheme === "dark" ? "Dark mode" : "Light mode";
+  if(icon){
+    icon.innerHTML = nextTheme === "dark"
+      ? '<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>'
+      : '<path d="M21 12.8A8.5 8.5 0 1 1 11.2 3 6.7 6.7 0 0 0 21 12.8z"></path>';
+  }
+}
+
+function toggleTheme(){
+  const current = document.documentElement.getAttribute("data-theme") === "dark" ? "dark" : "light";
+  const next = current === "dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try{ localStorage.setItem("gids_theme", next); }catch(e){}
+  applyThemeToggleUI(next);
 }
 init();
 
