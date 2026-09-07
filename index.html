@@ -3843,7 +3843,15 @@ async function logout(){
   updateNavForRole(null);
   // Clear the local session immediately. Firebase sign-out continues in the
   // background so a slow network cannot delay the login screen.
-  switchView("role-select");
+  try{
+    switchView("role-select");
+  }catch(error){
+    console.error("Could not render the login screen after logout:", error);
+    document.querySelectorAll(".view").forEach(view=>view.classList.remove("active"));
+    document.getElementById("view-role-select")?.classList.add("active");
+    document.querySelector(".shell")?.classList.add("login-mode");
+    document.body.classList.add("login-mode");
+  }
   firebase.auth().signOut().catch(e=>console.error("Firebase sign-out failed:", e));
   setTimeout(()=>{ logoutInProgress = false; }, 500);
 }
