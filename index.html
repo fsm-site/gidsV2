@@ -716,11 +716,11 @@
 .license-alert strong{display:block;margin-bottom:3px}
 .license-alert .close{margin-left:auto;background:none;border:0;color:inherit;cursor:pointer;font-size:18px}
 .license-alert.urgent{border-color:rgba(255,80,80,.6);background:rgba(48,15,15,.97)}
-.license-lock{min-height:55vh;display:flex;align-items:center;justify-content:center;padding:30px}
-.license-lock-card{max-width:520px;width:100%;padding:34px;border:1px solid rgba(255,80,80,.25);border-radius:20px;background:var(--card,#fff);box-shadow:0 15px 45px rgba(0,0,0,.12);text-align:center}
-.license-lock-card .lock-icon{font-size:42px;margin-bottom:10px}
-.license-lock-card h2{margin:0 0 8px}
-.license-lock-card p{line-height:1.6;opacity:.75}
+.license-lock{min-height:calc(100vh - 105px);min-height:calc(100svh - 105px);display:flex;align-items:center;justify-content:center;padding:40px 28px 70px;box-sizing:border-box}
+.license-lock-card{max-width:720px;width:100%;padding:24px 30px;text-align:center;background:transparent;border:0;box-shadow:none}
+.license-lock-card .lock-icon{font-size:52px;margin-bottom:14px}
+.license-lock-card h2{margin:0 0 10px;font-size:clamp(30px,4vw,48px)}
+.license-lock-card p{line-height:1.7;opacity:.8;font-size:clamp(14px,1.6vw,18px);margin:0 auto 20px}
 .license-meta{margin:18px 0;padding:13px;border-radius:12px;background:rgba(127,127,127,.09);font-size:13px}
 </style>
 </head>
