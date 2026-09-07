@@ -3787,7 +3787,6 @@ function hideLogoutLoading(){
 }
 
 async function logout(){
-  showLogoutLoading();
   document.querySelectorAll('button[onclick="logout()"]').forEach(btn=>btn.disabled=true);
   session.isAdmin = false;
   session.isDeveloper = false;
@@ -3803,9 +3802,8 @@ async function logout(){
   stopRealtimeSync();
   updateNavForRole(null);
   // Clear the local session immediately. Firebase sign-out continues in the
-  // background so a slow network cannot trap the user behind the overlay.
+  // background so a slow network cannot delay the login screen.
   switchView("role-select");
-  hideLogoutLoading();
   firebase.auth().signOut().catch(e=>console.error("Firebase sign-out failed:", e));
 }
 
