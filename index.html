@@ -1081,6 +1081,29 @@
         </div>
       </div>
 
+      <!-- ================= DEVELOPER LOGIN ================= -->
+      <div class="view" id="view-developer-login">
+        <div class="login-wrap">
+          <div class="login-card">
+            <div class="logo-badge"></div>
+            <h2>DEVELOPER ACCESS</h2>
+            <p class="hint">Security controls only · no business data</p>
+            <div class="field">
+              <label>Email</label>
+              <input type="email" id="developer-user" placeholder="Developer email" autocomplete="username">
+            </div>
+            <div class="field">
+              <label>Password</label>
+              <input type="password" id="developer-pass" placeholder="Developer password" autocomplete="current-password">
+            </div>
+            <label class="remember-choice"><input type="checkbox" id="remember-developer" checked> Remember me on this device</label>
+            <div class="login-error" id="developer-error"></div>
+            <button class="pill-btn primary login-submit" id="developer-login-btn" style="width:100%;padding:11px;" onclick="attemptDeveloperLogin()">Log in</button>
+            <button class="pill-btn ghost" type="button" style="margin-top:10px;width:100%;" onclick="switchView('role-select')">Back</button>
+          </div>
+        </div>
+      </div>
+
       <!-- ================= STAFF ACCESS GATE ================= -->
       <div class="view" id="view-staff-gate">
         <div class="login-wrap">
@@ -3080,6 +3103,8 @@ async function init(){
   document.getElementById("staff-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("staff-user").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptStaffLogin(); });
   document.getElementById("login-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptLogin(); });
+  document.getElementById("developer-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptDeveloperLogin(); });
+  document.getElementById("developer-user").addEventListener("keydown", e=>{ if(e.key==="Enter") attemptDeveloperLogin(); });
   session.pendingView = null;
   // Firebase Authentication, not localStorage/sessionStorage, determines the role.
   enforceClientRole();
@@ -3138,7 +3163,7 @@ document.getElementById("install-app").addEventListener("click", async ()=>{
   document.getElementById("install-app").classList.remove("visible");
 });
 if("serviceWorker" in navigator){
-  window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js?v=19"));
+  window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js?v=20"));
 }
 
 function goToInventoryFromOverview(){
@@ -3220,7 +3245,7 @@ function openLoginChoices(){
 }
 
 function openDeveloperAccess(){
-  switchView("admin");
+  switchView("developer-login");
 }
 
 function switchView(key){
@@ -3336,6 +3361,11 @@ function switchView(key){
       subEl.innerHTML = "Sign in to manage jobs and inventory";
       rightEl.innerHTML = "";
     }
+  } else if(key==="developer-login"){
+    document.getElementById("view-developer-login").classList.add("active");
+    titleEl.innerHTML = `DEVELOPER <span class="hi">ACCESS</span>`;
+    subEl.innerHTML = "Security controls only · business data excluded";
+    rightEl.innerHTML = "";
   } else if(key==="security-access"){
     if(!hasSecurityAccess()){
       switchView(session.staffUnlocked ? "employee" : "role-select");
@@ -3569,6 +3599,37 @@ async function attemptLogin(){
     err.textContent = message;
   }finally{
     setLoginLoading("admin-login-btn", null);
+  }
+}
+async function attemptDeveloperLogin(){
+  const email = document.getElementById("developer-user").value.trim();
+  const password = document.getElementById("developer-pass").value;
+  const error = document.getElementById("developer-error");
+  error.textContent = "";
+  if(!email || !password){ error.textContent = "Please enter your developer email and password."; return; }
+  setLoginLoading("developer-login-btn", "Signing in...");
+  try{
+    const remember = document.getElementById("remember-developer").checked;
+    await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
+    const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
+    const roleDetails = await getFirebaseRoleDetails(userCredential.user);
+    if(roleDetails.role !== "developer"){
+      await firebase.auth().signOut();
+      error.textContent = "This Firebase account is not assigned Developer access.";
+      return;
+    }
+    session.isAdmin = false;
+    session.staffUnlocked = false;
+    session.isDeveloper = true;
+    await loadSecurityCollections();
+    updateNavForRole("developer");
+    switchView("security-access");
+    showToast("Developer security portal");
+  }catch(loginError){
+    console.error("Firebase developer login error:", loginError);
+    error.textContent = loginError?.code === "auth/invalid-credential" ? "Developer account not recognized." : "Developer login failed. Check the Firebase account and try again.";
+  }finally{
+    setLoginLoading("developer-login-btn", null);
   }
 }
 async function attemptStaffLogin(){
