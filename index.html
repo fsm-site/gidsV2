@@ -1048,9 +1048,8 @@
           <div class="login-card">
             <div class="logo-badge"></div>
             <h2>LOGIN ACCESS</h2>
-            <p class="hint">Admin and Staff sign in here</p>
-            <button class="pill-btn primary" type="button" onclick="openLoginChoices()" id="login-access-button" style="width:100%;min-height:52px;">Login access</button>
-            <div class="role-choice" id="login-role-choice" style="display:none;">
+            <p class="hint">Choose your access level</p>
+            <div class="role-choice" id="login-role-choice">
               <button class="pill-btn primary" type="button" onclick="chooseRole('admin')">Admin</button>
               <button class="pill-btn ghost" type="button" onclick="chooseRole('staff')">Staff</button>
             </div>
@@ -1099,7 +1098,7 @@
             <label class="remember-choice"><input type="checkbox" id="remember-developer" checked> Remember me on this device</label>
             <div class="login-error" id="developer-error"></div>
             <button class="pill-btn primary login-submit" id="developer-login-btn" style="width:100%;padding:11px;" onclick="attemptDeveloperLogin()">Log in</button>
-            <button class="pill-btn ghost" type="button" style="margin-top:10px;width:100%;" onclick="switchView('role-select')">Back</button>
+            <button class="pill-btn ghost" type="button" style="margin-top:10px;width:100%;" onclick="switchView('role-select')">Back to login access</button>
           </div>
         </div>
       </div>
@@ -3238,9 +3237,7 @@ function chooseRole(role){
 }
 
 function openLoginChoices(){
-  const button = document.getElementById("login-access-button");
   const choices = document.getElementById("login-role-choice");
-  if(button) button.style.display = "none";
   if(choices) choices.style.display = "grid";
 }
 
@@ -3273,10 +3270,8 @@ function switchView(key){
     titleEl.innerHTML = `GIDS AYPHONE TECH`;
     subEl.innerHTML = "Secure access portal";
     rightEl.innerHTML = "";
-    const loginButton = document.getElementById("login-access-button");
     const roleChoice = document.getElementById("login-role-choice");
-    if(loginButton) loginButton.style.display = "block";
-    if(roleChoice) roleChoice.style.display = "none";
+    if(roleChoice) roleChoice.style.display = "grid";
     renderAll();
     return;
   }
