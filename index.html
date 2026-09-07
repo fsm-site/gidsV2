@@ -60,6 +60,7 @@
   .shell.login-mode .rail{ display:none; }
   .shell.login-mode .topbar{ display:none; }
   .shell.login-mode .main{ width:100%; }
+  .shell.login-mode .main{ position:relative; z-index:2; }
   .shell.login-mode .content{ min-height:100vh; padding:0; display:flex; align-items:center; justify-content:center; }
   body.login-mode{ background:#000; color:#eefaff; }
   body.login-mode::before{ opacity:.28; filter:grayscale(.2) contrast(1.15); }
@@ -401,6 +402,7 @@
     position:fixed; inset:0; z-index:9999;
     background:#000;
     display:flex; align-items:center; justify-content:center;
+    pointer-events:none;
     transition:opacity .5s ease;
     flex-direction:column;
     gap:22px;
