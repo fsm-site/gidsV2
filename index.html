@@ -1732,6 +1732,126 @@ async function restoreAuthenticatedSession(){
   }
 }
 
+function subscriptionDateValue(value){
+  if(!value) return null;
+  if(value.toDate) return value.toDate();
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+function subscriptionIsActive(){
+  const expires = subscriptionDateValue(subscription.expiresAt);
+  return subscription.status === "active" && !!expires && expires.getTime() > Date.now();
+}
+function subscriptionDaysLeft(){
+  const expires = subscriptionDateValue(subscription.expiresAt);
+  if(!expires) return null;
+  return Math.max(0, Math.ceil((expires.getTime()-Date.now())/86400000));
+}
+function formatLicenseDate(value){
+  const d = subscriptionDateValue(value);
+  return d ? formatSiteDate(d) : "—";
+}
+function showLicenseAlert(){
+  if(!session.isAdmin || !subscription || !subscription.expiresAt || licenseAlertDismissed) return;
+  const days = subscriptionDaysLeft();
+  const alert = document.getElementById("license-alert");
+  const title = document.getElementById("license-alert-title");
+  const text = document.getElementById("license-alert-text");
+  if(!alert || !title || !text || days === null || !subscriptionIsActive()) return;
+  if(days <= 1){
+    title.textContent = "⚡ Trial access expires soon";
+    text.textContent = days === 0 ? "Your access expires today." : "Your access expires tomorrow.";
+    alert.classList.add("urgent");
+  }else if(days <= 3){
+    title.textContent = "⚡ Trial access reminder";
+    text.textContent = `${days} days remaining in the 7-day trial.`;
+    alert.classList.remove("urgent");
+  }else{
+    alert.classList.remove("show","urgent");
+    return;
+  }
+  alert.classList.add("show");
+}
+function dismissLicenseAlert(){
+  licenseAlertDismissed = true;
+  const alert = document.getElementById("license-alert");
+  if(alert) alert.classList.remove("show");
+}
+function startLicenseAlertTimer(){
+  clearInterval(licenseAlertTimer);
+  showLicenseAlert();
+  licenseAlertTimer = setInterval(()=>{
+    if(subscriptionIsActive()) showLicenseAlert();
+    else clearInterval(licenseAlertTimer);
+  }, 60000);
+}
+async function ensureTrialSubscription(){
+  try{
+    // Subscription status is owner/backend controlled. The client is read-only
+    // and must never create or extend its own trial.
+    const snap = await withTimeout(subscriptionRef.get(), 8000);
+    if(snap.exists){
+      subscription = { ...subscription, ...snap.data() };
+      applySubscriptionBranches();
+    }else{
+      subscription = { status:"suspended", plan:"unknown", startsAt:null, expiresAt:null, maxBranches:0, activeBranchIds:[] };
+      applySubscriptionBranches();
+    }
+  }catch(e){
+    console.error("Could not load subscription:",e);
+    subscription = { status:"unknown", plan:"unknown", startsAt:null, expiresAt:null, maxBranches:0, activeBranchIds:[] };
+    applySubscriptionBranches();
+  }
+}
+async function loadSubscription(){
+  await ensureTrialSubscription();
+  const expires = subscriptionDateValue(subscription.expiresAt);
+  if(subscription.status === "active" && expires && expires.getTime() <= Date.now()){
+    subscription = {...subscription,status:"suspended"};
+  }
+  if(state){ state.subscription = {...subscription}; }
+  return subscriptionIsActive();
+}
+function applySubscriptionAccess(){
+  const active = subscriptionIsActive();
+  const user = firebase.auth().currentUser;
+  if(!user || user.isAnonymous) return active;
+
+  // Staff access is governed by the same Firestore subscription/branch rules,
+  // but the client must not lock a valid staff session merely because the
+  // subscription read is temporarily unavailable or returns an unknown state.
+  // Admin remains client-gated so the owner sees the suspension screen.
+  if(!active && session.staffUnlocked && !session.isAdmin){
+    if(subscription.status === "suspended" || subscription.status === "expired"){
+      // An explicitly inactive subscription is still enforced.
+      updateNavForRole(null);
+      switchView("license-suspended");
+      const exp = document.getElementById("license-expired-text");
+      if(exp) exp.textContent = subscription.expiresAt ? `Access expired on ${formatLicenseDate(subscription.expiresAt)}.` : "Access is currently suspended.";
+      return false;
+    }
+    return true;
+  }
+
+  if(!active){
+    session.isAdmin = false;
+    session.staffUnlocked = false;
+    updateNavForRole(null);
+    switchView("license-suspended");
+    const exp = document.getElementById("license-expired-text");
+    if(exp) exp.textContent = subscription.expiresAt ? `Access expired on ${formatLicenseDate(subscription.expiresAt)}.` : "Access is currently suspended.";
+    return false;
+  }
+  if(session.isAdmin) startLicenseAlertTimer();
+  return true;
+}
+
+function loadState(){
+  // Show the UI instantly using whatever is cached locally; Firebase syncs in the background.
+  state = readLocal() || defaultState();
+  finishStateMigration();
+}
+
 async function syncFromFirebase(){
   // Legacy app-data is no longer used for normal runtime synchronization.
   // Authenticated sessions load dedicated collections/appMeta directly.
