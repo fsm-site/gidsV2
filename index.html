@@ -1498,6 +1498,18 @@ let subscription = { status:"unknown", plan:"trial", startsAt:null, expiresAt:nu
 let licenseAlertTimer = null;
 let licenseAlertDismissed = false;
 
+function withTimeout(promise, milliseconds){
+  let timer;
+  const timeout = new Promise((_, reject)=>{
+    timer = setTimeout(()=>{
+      const error = new Error(`Operation timed out after ${milliseconds}ms`);
+      error.code = "deadline-exceeded";
+      reject(error);
+    }, milliseconds);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(()=>clearTimeout(timer));
+}
+
 let authReadyResolve;
 const authReady = new Promise(res => { authReadyResolve = res; });
 firebase.auth().onAuthStateChanged(user => {
