@@ -954,7 +954,7 @@
             <div class="panel-head" style="padding:0 0 14px;">
               <div><h3>Today's shift</h3><div class="desc" id="attendance-date-label"></div></div>
             </div>
-            <div class="field"><label>Technician</label><select id="attendance-tech"></select></div>
+            <div class="field"><label>Technician</label><select id="attendance-tech"></select><div id="attendance-self-note" class="desc" style="margin-top:7px;display:none;">You can check in or check out only your own attendance.</div></div>
             <div class="attendance-status" id="attendance-status"><span class="dot"></span><span>Not checked in</span></div>
             <div style="display:flex;gap:8px;flex-wrap:wrap;">
               <button class="pill-btn primary" onclick="checkInTechnician()">Check in</button>
@@ -3956,6 +3956,16 @@ function formatAttendanceTime(value){
   if(!value) return "—";
   return new Date(value).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
 }
+function formatAttendanceDate(value){
+  if(!value) return "—";
+  const parts = String(value).split("-").map(Number);
+  if(parts.length===3 && parts.every(Number.isFinite)){
+    const d = new Date(parts[0], parts[1]-1, parts[2]);
+    return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
+  }
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
+}
 
 function attendanceDateTimeValue(value){
   if(!value) return "";
@@ -3970,24 +3980,24 @@ function renderAttendance(){
   const status = document.getElementById("attendance-status");
   const dateLabel = document.getElementById("attendance-date-label");
   const actionsHead = document.getElementById("attendance-actions-head");
+  const selfNote = document.getElementById("attendance-self-note");
   if(!select || !body || !status || !dateLabel) return;
   if(actionsHead) actionsHead.style.display = session.isAdmin ? "table-cell" : "none";
+  if(selfNote) selfNote.style.display = session.isAdmin ? "none" : "block";
   const current = select.value;
-  // Staff attendance is self-service: Staff sees only their own technician
-  // identity in this control and may check in/out. Staff cannot edit or delete
-  // attendance records; those controls remain Admin-only below. Admin sees the
-  // full current technician directory.
+  // Both Admin and Staff use the same realtime technician directory. Staff may
+  // check in/out only their own attendance, but the selector must still show
+  // the complete current technician list exactly as Admin sees it. The action
+  // guards below enforce the self-service permission.
   const attendanceTechs = Array.isArray(TECHS) ? [...TECHS] : [];
   const staffTech = canonicalStaffTechnicianName(session.staffTechnician);
   if(!session.isAdmin && staffTech && staffTech !== session.staffTechnician){
     session.staffTechnician = staffTech;
   }
-  const visibleAttendanceTechs = session.isAdmin
-    ? attendanceTechs
-    : (staffTech ? [staffTech] : []);
+  const visibleAttendanceTechs = attendanceTechs;
   select.innerHTML = visibleAttendanceTechs.length
     ? visibleAttendanceTechs.map(tech=>`<option value="${escapeHTML(tech)}">${escapeHTML(tech)}</option>`).join("")
-    : `<option value="">${session.isAdmin ? 'No technicians available' : 'Staff technician access not assigned'}</option>`;
+    : `<option value="">No technicians available</option>`;
   if(!session.isAdmin && staffTech && visibleAttendanceTechs.includes(staffTech)) select.value = staffTech;
   else if(visibleAttendanceTechs.includes(current)) select.value = current;
   else if(visibleAttendanceTechs.length) select.value = visibleAttendanceTechs[0];
@@ -4001,7 +4011,7 @@ function renderAttendance(){
       : `<span class="dot"></span><span>Not checked in</span>`;
   const rows = attendanceForToday();
   body.innerHTML = rows.length ? rows.map(record=>`<tr>
-    <td>${escapeHTML(record.tech)}</td><td>${escapeHTML(record.date)}</td>
+    <td>${escapeHTML(record.tech)}</td><td>${escapeHTML(formatAttendanceDate(record.date))}</td>
     <td>${formatAttendanceTime(record.checkIn)}</td><td>${formatAttendanceTime(record.checkOut)}</td>
     <td><span class="tag ${record.checkOut ? "good" : "low"}">${record.checkOut ? "Completed" : "Present"}</span></td>
     <td style="text-align:right;display:${session.isAdmin ? "table-cell" : "none"}"><div class="row-actions" style="justify-content:flex-end;"><button onclick="openAttendanceEditModal('${record.id}')" title="Edit attendance">${editIconSVG()}</button><button class="del" onclick="deleteAttendance('${record.id}')" title="Delete attendance">${deleteIconSVG()}</button></div></td>
