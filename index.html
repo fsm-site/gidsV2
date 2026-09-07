@@ -2932,7 +2932,7 @@ function startRealtimeSync(){
             const account = snap.docs.map(doc=>({id:doc.id,...doc.data()}))[0];
             if(account){
               const previous = session.staffTechnician;
-              session.staffTechnician = account.technician || session.staffTechnician || "";
+              session.staffTechnician = canonicalStaffTechnicianName(account) || session.staffTechnician || "";
               const byId = new Map((state.staffAccounts || []).map(a=>[a.id,a]));
               byId.set(account.id, {...account, branchId:account.branchId || branchId, email:(account.email || user.email || "").trim().toLowerCase()});
               state.staffAccounts = [...byId.values()];
@@ -3458,7 +3458,7 @@ async function attemptStaffLogin(){
     session.staffUnlocked = true;
     session.isAdmin = false;
     session.staffUsername = account.username || user.email;
-    session.staffTechnician = account.technician;
+    session.staffTechnician = canonicalStaffTechnicianName(account);
     await loadStaffCollections();
     await loadStaffOperationalCollections();
     await loadAttendanceFromCollection();
@@ -3684,6 +3684,23 @@ function renderAll(){
     renderLaborSummary("admin-labor-body", null);
     renderAttendanceReport();
   }
+}
+
+// Resolve the Staff account technician against the same technician directory
+// used by Admin Access. This prevents a legacy/composite value such as
+// "Username/Technician" from appearing in Staff Attendance when Admin Access
+// identifies the technician by the directory name alone.
+function canonicalStaffTechnicianName(accountOrValue){
+  const raw = typeof accountOrValue === "string"
+    ? accountOrValue
+    : (accountOrValue?.technician || "");
+  const value = String(raw || "").trim();
+  if(!value) return "";
+  if(TECHS.some(tech => tech === value)) return value;
+  const parts = value.split(/[\/|>]+/).map(part=>part.trim()).filter(Boolean);
+  const exact = parts.find(part => TECHS.some(tech => tech === part));
+  if(exact) return exact;
+  return value;
 }
 
 function renderStaffAccess(){
@@ -3947,7 +3964,10 @@ function renderAttendance(){
   // attendance records; those controls remain Admin-only below. Admin sees the
   // full current technician directory.
   const attendanceTechs = Array.isArray(TECHS) ? [...TECHS] : [];
-  const staffTech = String(session.staffTechnician || '').trim();
+  const staffTech = canonicalStaffTechnicianName(session.staffTechnician);
+  if(!session.isAdmin && staffTech && staffTech !== session.staffTechnician){
+    session.staffTechnician = staffTech;
+  }
   const visibleAttendanceTechs = session.isAdmin
     ? attendanceTechs
     : (staffTech && attendanceTechs.includes(staffTech) ? [staffTech] : []);
@@ -4042,7 +4062,8 @@ async function deleteAttendance(id){
 async function checkInTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
   if(!tech) return;
-  if(!session.isAdmin && tech !== session.staffTechnician){
+  const ownTech = canonicalStaffTechnicianName(session.staffTechnician);
+  if(!session.isAdmin && tech !== ownTech){
     showToast("Staff can only check in their own attendance");
     return;
   }
@@ -4073,7 +4094,8 @@ async function checkInTechnician(){
 
 async function checkOutTechnician(){
   const tech = document.getElementById("attendance-tech")?.value;
-  if(!session.isAdmin && tech !== session.staffTechnician){
+  const ownTech = canonicalStaffTechnicianName(session.staffTechnician);
+  if(!session.isAdmin && tech !== ownTech){
     showToast("Staff can only check out their own attendance");
     return;
   }
