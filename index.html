@@ -3477,6 +3477,9 @@ function describeFirebaseAuthError(error, label){
   if(code === "auth/operation-not-allowed") return "Firebase Email/Password sign-in is not enabled for this project.";
   if(code === "auth/too-many-requests") return "Firebase temporarily blocked sign-in attempts. Wait and try again.";
   if(code === "auth/network-request-failed") return "Firebase could not connect. Check the network and try again.";
+  if(code === "permission-denied") return `${label[0].toUpperCase()+label.slice(1)} signed in, but Firestore denied a required access read.`;
+  if(code === "deadline-exceeded") return `${label[0].toUpperCase()+label.slice(1)} signed in, but a required Firebase read timed out.`;
+  if(error?.message) return `${label[0].toUpperCase()+label.slice(1)} login stopped: ${error.message}`;
   return `${label[0].toUpperCase()+label.slice(1)} login failed (${code || "unknown-auth-error"}).`;
 }
 
