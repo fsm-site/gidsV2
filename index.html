@@ -1940,6 +1940,12 @@ function loadState(){
   finishStateMigration();
 }
 
+function ensureStateReady(){
+  if(state) return;
+  state = defaultState();
+  finishStateMigration();
+}
+
 async function syncFromFirebase(){
   // Legacy app-data is no longer used for normal runtime synchronization.
   // Authenticated sessions load dedicated collections/appMeta directly.
@@ -3443,6 +3449,7 @@ async function loadCloudStateAfterLogin(){
 async function loadSecurityCollections(){
   const user = firebase.auth().currentUser;
   if(!user || (!session.isAdmin && !session.isDeveloper)) return;
+  ensureStateReady();
   const branchId = currentBranchId();
   const [staffSnap, adminSnap] = await Promise.all([
     session.isDeveloper ? db.collection("staffAccounts").get() : db.collection("staffAccounts").where("branchId","==",branchId).get(),
@@ -3484,6 +3491,7 @@ function describeFirebaseAuthError(error, label){
 }
 
 async function attemptLogin(){
+  ensureStateReady();
   const email = document.getElementById("login-user").value.trim();
   const password = document.getElementById("login-pass").value;
   const err = document.getElementById("login-error");
@@ -3614,6 +3622,7 @@ async function attemptLogin(){
   }
 }
 async function attemptDeveloperLogin(){
+  ensureStateReady();
   const email = document.getElementById("developer-user").value.trim();
   const password = document.getElementById("developer-pass").value;
   const error = document.getElementById("developer-error");
@@ -3645,6 +3654,7 @@ async function attemptDeveloperLogin(){
   }
 }
 async function attemptStaffLogin(){
+  ensureStateReady();
   const email = document.getElementById("staff-user").value.trim();
   const p = document.getElementById("staff-pass").value;
   const err = document.getElementById("staff-error");
