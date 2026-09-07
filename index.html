@@ -68,8 +68,14 @@ function peso(value){
 }
 function fmtDateOnly(value){
   if(!value) return "—";
+  if(value.toDate) value=value.toDate();
   const d=new Date(value);
-  return Number.isNaN(d.getTime())?"—":d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric"});
+  return Number.isNaN(d.getTime())?String(value):d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric"});
+}
+function fmtStoredDate(value){
+  if(!value) return "—";
+  const d = value && value.toDate ? value.toDate() : new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric"});
 }
 function showError(msg){result.innerHTML=`<div class="error">${esc(msg)}</div>`;}
 const TRACKER_STEPS=[
@@ -153,7 +159,7 @@ function showRecord(data){
           <div class="receipt-rows">
             <div class="receipt-row"><span>Service No.</span><b>${esc(serviceNo)}</b></div>
             <div class="receipt-row"><span>Receipt No.</span><b>${esc(receiptNo)}</b></div>
-            <div class="receipt-row"><span>Date</span><b>${esc(data.receiptDate||fmtDateOnly(data.encodedAt))}</b></div>
+            <div class="receipt-row"><span>Date</span><b>${esc(data.receiptDate ? fmtStoredDate(data.receiptDate) : fmtDateOnly(data.encodedAt))}</b></div>
             <div class="receipt-row"><span>Customer</span><b>${esc(customerName||"Walk-in customer")}</b></div>
             <div class="receipt-row"><span>Technician</span><b>${esc(data.tech||"—")}</b></div>
             <div class="receipt-row"><span>Service</span><b>${esc(data.serviceType||"—")}</b></div>
@@ -162,7 +168,7 @@ function showRecord(data){
           <div class="receipt-row receipt-total"><span>Total Amount</span><b>${peso(total)}</b></div>
           <div class="receipt-row"><span>Amount Paid</span><b>${peso(paid)}</b></div>
           <div class="receipt-row receipt-balance ${balanceClass}"><span>Balance</span><b>${peso(balance)}</b></div>
-          <div class="receipt-warranty-box"><b>Warranty: ${esc(data.warrantyDays||7)} days</b><br>Warranty expires: <b>${esc(data.warrantyExpires||"—")}</b><br>Terms &amp; Conditions apply.</div>
+          <div class="receipt-warranty-box"><b>Warranty: ${esc(data.warrantyDays||7)} days</b><br>Warranty expires: <b>${esc(data.warrantyExpires ? fmtStoredDate(data.warrantyExpires) : "—")}</b><br>Terms &amp; Conditions apply.</div>
         </div>
       </div>
     </div>`;
