@@ -578,6 +578,10 @@
     .rail .nav-item[data-view="staff-directory"]{ order:5; }
     .rail .nav-item[data-view="attendance"]{ order:6; }
     .rail .nav-item[data-view="staff-gate"]{ order:7; }
+    .rail .nav-item[data-view="security-access"]{ order:8; }
+    .security-nav{ display:none; margin-top:12px; padding:9px 10px; border:1px solid rgba(141,160,196,.18); border-radius:8px; background:rgba(255,255,255,.025); color:#8DA0C4; cursor:pointer; font:600 11px/1.3 'Inter',sans-serif; text-align:left; }
+    .security-nav:hover{ background:rgba(59,158,255,.08); color:#fff; }
+    .security-nav svg{ width:14px; height:14px; vertical-align:-3px; margin-right:6px; }
     .rail .nav-item[data-view="employee"] .label{ font-size:0; }
     .rail .nav-item[data-view="employee"] .label::after{ content:"HOME"; font-size:10px; }
     .rail .nav-item[data-view="inventory-public"] .label{ font-size:0; }
@@ -840,6 +844,9 @@
       <span class="label" id="admin-nav-label">ADMIN</span>
     </div>
 
+    <button class="security-nav" id="security-nav" type="button" data-view="security-access" title="Security and Access">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3l8 3v5c0 5-3.4 8.4-8 10-4.6-1.6-8-5-8-10V6l8-3z"/><path d="M12 8v5M9.5 10.5h5"/></svg>Security and Access
+    </button>
     <div class="rail-foot">REPAIR · SERVICE · ACCESSORIES<br>San Antonio · Upcoming Branch<br><br><strong>GIDS AYPHONE TECH</strong><div class="copyright">© 2026 GIDS AYPHONE TECH<br>All rights reserved.</div></div>
   </div>
 
@@ -1100,7 +1107,6 @@
           <div class="subtab" data-sub="operations">OPERATIONS</div>
           <div class="subtab" data-sub="inventory">INVENTORY</div>
           <div class="subtab" data-sub="reports">REPORTS</div>
-            <div class="subtab" data-sub="security">SECURITY</div>
         </div>
 
         <!-- Overview subtab -->
@@ -1354,21 +1360,34 @@
           </div>
         </div>
 
-        <!-- Security subtab -->
-        <div id="admin-sub-security" style="display:none;">
-          <div class="panel">
+      </div>
+
+      <!-- ================= SECURITY AND ACCESS ================= -->
+      <div class="view" id="view-security-access">
+        <div class="panel">
+          <div class="panel-head">
+            <div><h3>Security and Access</h3><div class="desc" id="security-access-desc">Admin-only access controls.</div></div>
+            <button class="pill-btn ghost" type="button" onclick="switchView('admin')">Back to dashboard</button>
+          </div>
+          <div class="panel" style="margin:16px;">
             <div class="panel-head">
-              <div><h3>Staff access</h3><div class="desc">Assign unique login credentials or revoke access for technicians.</div></div>
+              <div><h3>Staff access</h3><div class="desc">Assign or revoke technician access.</div></div>
               <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
             </div>
             <table><thead><tr><th>Technician</th><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
           </div>
-          <div class="panel">
+          <div class="panel" style="margin:16px;">
             <div class="panel-head">
               <div><h3>Admin access</h3><div class="desc">Manage administrator access and Firebase emails.</div></div>
               <button class="pill-btn primary" onclick="openAdminAccountModal()">+ Add admin</button>
             </div>
             <table><thead><tr><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
+          </div>
+          <div class="panel" id="developer-roles-panel" style="display:none;margin:16px;">
+            <div class="panel-head">
+              <div><h3>Role registry</h3><div class="desc">Developer-only control of Firebase role assignments.</div></div>
+            </div>
+            <table><thead><tr><th>Firebase UID</th><th>Email</th><th>Role</th><th style="text-align:right">Action</th></tr></thead><tbody id="developer-roles-body"></tbody></table>
           </div>
         </div>
       </div>
@@ -1525,7 +1544,9 @@ const STORAGE_KEY = "gids-tech-data";
 const SESSION_KEY = "gids-remembered-session";
 const BROWSER_SESSION_KEY = "gids-active-page";
 let state = null;
-let session = { isAdmin:false, staffUnlocked:false, pendingView:null, adminUsername:null, staffUsername:null, staffTechnician:null };
+let session = { isAdmin:false, isDeveloper:false, staffUnlocked:false, pendingView:null, adminUsername:null, staffUsername:null, staffTechnician:null };
+let securityRoles = [];
+function hasSecurityAccess(){ return session.isAdmin || session.isDeveloper; }
 
 function enforceClientRole(){
   const user = firebase.auth().currentUser;
@@ -1671,7 +1692,7 @@ async function getFirebaseRoleDetails(user){
       return {role:null, exists:false, errorCode:"missing-role", error:null};
     }
     const rawRole = String(roleSnap.data()?.role || "").trim().toLowerCase();
-    const role = rawRole === "admin" || rawRole === "staff" ? rawRole : null;
+    const role = rawRole === "admin" || rawRole === "staff" || rawRole === "developer" ? rawRole : null;
     return {role, exists:true, errorCode:role ? null : "invalid-role", error:null};
   }catch(e){
     console.error("Could not read Firebase role:", e);
@@ -1697,6 +1718,7 @@ async function restoreAuthenticatedSession(){
     await withTimeout(authReady, 8000);
     const user = firebase.auth().currentUser;
     session.isAdmin = false;
+    session.isDeveloper = false;
     session.staffUnlocked = false;
     session.adminUsername = null;
     session.staffUsername = null;
@@ -1731,6 +1753,11 @@ async function restoreAuthenticatedSession(){
       session.staffUsername = staffAccount.username || user.email;
       session.staffTechnician = staffAccount.technician || "";
       return "staff";
+    }
+
+    if(role === "developer"){
+      session.isDeveloper = true;
+      return "developer";
     }
 
     if(role === "admin"){
@@ -3035,6 +3062,8 @@ async function init(){
         await loadTechnicianDirectory();
         await loadAttendanceFromCollection();
         startRealtimeSync();
+      }else if(restoredRole === "developer") {
+        await loadSecurityCollections();
       }
     }
   }
@@ -3047,10 +3076,10 @@ async function init(){
   session.pendingView = null;
   // Firebase Authentication, not localStorage/sessionStorage, determines the role.
   enforceClientRole();
-  const activeRole = restoredRole || (session.isAdmin ? "admin" : session.staffUnlocked ? "staff" : null);
-  if(activeRole && !subscriptionIsActive()){ applySubscriptionAccess(); return; }
+  const activeRole = restoredRole || (session.isAdmin ? "admin" : session.isDeveloper ? "developer" : session.staffUnlocked ? "staff" : null);
+  if(activeRole && activeRole !== "developer" && !subscriptionIsActive()){ applySubscriptionAccess(); return; }
   updateNavForRole(activeRole);
-  const allowedView = activeRole === "admin" ? (restoredView || "admin") : activeRole === "staff" ? (restoredView || "employee") : "role-select";
+  const allowedView = activeRole === "admin" ? (restoredView || "admin") : activeRole === "developer" ? "security-access" : activeRole === "staff" ? (restoredView || "employee") : "role-select";
   switchView(allowedView);
   applyThemeToggleUI(document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light");
   if(restoredRole) setInterval(async ()=>{ await loadSubscription(); applySubscriptionAccess(); }, 60000);
@@ -3115,6 +3144,8 @@ function bindNav(){
   document.querySelectorAll(".nav-item").forEach(el=>{
     el.addEventListener("click", ()=> switchView(el.dataset.view));
   });
+  const securityNav = document.getElementById("security-nav");
+  if(securityNav) securityNav.addEventListener("click", ()=>switchView("security-access"));
   document.querySelectorAll(".subtab[data-sub]").forEach(el=>{
     el.addEventListener("click", ()=>{
       ui.subtab = el.dataset.sub;
@@ -3124,8 +3155,6 @@ function bindNav(){
       document.getElementById("admin-sub-operations").style.display = ui.subtab==="operations" ? "block":"none";
       document.getElementById("admin-sub-inventory").style.display = ui.subtab==="inventory" ? "block":"none";
       document.getElementById("admin-sub-reports").style.display = ui.subtab==="reports" ? "block":"none";
-      document.getElementById("admin-sub-security").style.display = ui.subtab==="security" ? "block":"none";
-      if(ui.subtab==="security"){ renderStaffAccess(); renderAdminAccess(); }
     });
   });
   document.querySelectorAll(".subtab[data-pubsub]").forEach(el=>{
@@ -3160,6 +3189,8 @@ function updateNavForRole(role){
         : false;
     nav.style.display = visible ? "flex" : "none";
   });
+  const securityNav = document.getElementById("security-nav");
+  if(securityNav) securityNav.style.display = (role === "admin" || role === "developer") ? "block" : "none";
 }
 
 function chooseRole(role){
@@ -3283,6 +3314,17 @@ function switchView(key){
       subEl.innerHTML = "Sign in to manage jobs and inventory";
       rightEl.innerHTML = "";
     }
+  } else if(key==="security-access"){
+    if(!hasSecurityAccess()){
+      switchView(session.staffUnlocked ? "employee" : "role-select");
+      return;
+    }
+    document.getElementById("view-security-access").classList.add("active");
+    titleEl.innerHTML = `SECURITY <span class="hi">&amp; ACCESS</span>`;
+    subEl.innerHTML = session.isDeveloper ? "Developer security portal · business data excluded" : "Restricted access controls";
+    rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Log out</button>`;
+    renderStaffAccess();
+    renderAdminAccess();
   }
   renderAll();
 }
@@ -3326,6 +3368,21 @@ async function loadCloudStateAfterLogin(){
   }catch(e){
     console.error("Could not load Firebase state after login:", e);
     return false;
+  }
+}
+async function loadSecurityCollections(){
+  const user = firebase.auth().currentUser;
+  if(!user || (!session.isAdmin && !session.isDeveloper)) return;
+  const branchId = currentBranchId();
+  const [staffSnap, adminSnap] = await Promise.all([
+    session.isDeveloper ? db.collection("staffAccounts").get() : db.collection("staffAccounts").where("branchId","==",branchId).get(),
+    session.isDeveloper ? db.collection("adminAccounts").get() : db.collection("adminAccounts").where("branchId","==",branchId).get()
+  ]);
+  state.staffAccounts = staffSnap.docs.map(doc=>({id:doc.id,...doc.data()}));
+  state.adminAccounts = normalizeAdminAccounts(adminSnap.docs.map(doc=>({id:doc.id,...doc.data()})));
+  if(session.isDeveloper){
+    const rolesSnap = await db.collection("userRoles").get();
+    securityRoles = rolesSnap.docs.map(doc=>({id:doc.id,...doc.data()}));
   }
 }
 function setLoginLoading(buttonId, loadingText){
@@ -3372,6 +3429,16 @@ async function attemptLogin(){
     if(role === "staff"){
       await firebase.auth().signOut();
       err.textContent = "This email is assigned as Staff. Please use Staff Login.";
+      return;
+    }
+
+    if(role === "developer"){
+      session.isDeveloper = true;
+      session.isAdmin = false;
+      await loadSecurityCollections();
+      updateNavForRole("developer");
+      switchView("security-access");
+      showToast("Developer security portal");
       return;
     }
 
@@ -3601,6 +3668,7 @@ async function logout(){
   showLogoutLoading();
   document.querySelectorAll('button[onclick="logout()"]').forEach(btn=>btn.disabled=true);
   session.isAdmin = false;
+  session.isDeveloper = false;
   session.staffUnlocked = false;
   session.pendingView = null;
   session.adminUsername = null;
@@ -3755,6 +3823,12 @@ async function saveStaffRepairStatus(id){
   if(ok) closeOverlay();
 }
 function renderAll(){
+  if(session.isDeveloper){
+    renderStaffAccess();
+    renderAdminAccess();
+    renderDeveloperRoles();
+    return;
+  }
   renderEmployeeDashboard();
   renderPublicInventory();
   renderStaffDirectory();
@@ -3764,13 +3838,17 @@ function renderAll(){
   renderLaborSummary("public-labor-body", null);
   if(session.isAdmin){
     renderAdminOverview();
-    renderStaffAccess();
     renderAdminInventory();
     renderStockMovements();
     renderOperations();
     renderTechSales("admin-tech-sales-body", ui.adminBranch);
     renderLaborSummary("admin-labor-body", null);
     renderAttendanceReport();
+  }
+  if(hasSecurityAccess()){
+    renderStaffAccess();
+    renderAdminAccess();
+    renderDeveloperRoles();
   }
 }
 
@@ -3829,7 +3907,7 @@ function handleAccessAction(select){
 
 function renderStaffAccess(){
   const body = document.getElementById("staff-access-body");
-  if(!body || !session.isAdmin) return;
+  if(!body || !hasSecurityAccess()) return;
   const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
   const techNames = [...TECHS];
   accounts.forEach(account=>{ if(account?.technician && !techNames.includes(account.technician) && String(account.status || "active").toLowerCase() === "revoked") techNames.push(account.technician); });
@@ -3841,7 +3919,7 @@ function renderStaffAccess(){
 
 function renderAdminAccess(){
   const body = document.getElementById("admin-access-body");
-  if(!body || !session.isAdmin) return;
+  if(!body || !hasSecurityAccess()) return;
   state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   const accounts = state.adminAccounts || [];
   body.innerHTML = accounts.length ? accounts.map(account=>{
@@ -3851,8 +3929,35 @@ function renderAdminAccess(){
   }).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
 }
 
+function renderDeveloperRoles(){
+  const panel = document.getElementById("developer-roles-panel");
+  const body = document.getElementById("developer-roles-body");
+  if(!panel || !body) return;
+  panel.style.display = session.isDeveloper ? "block" : "none";
+  if(!session.isDeveloper) return;
+  body.innerHTML = securityRoles.length ? securityRoles.map(role=>{
+    const current = String(role.role || "").toLowerCase();
+    return `<tr><td><code>${escapeHTML(role.id)}</code></td><td>${escapeHTML(role.email || "—")}</td><td><select id="security-role-${escapeHTML(role.id)}"><option value="admin" ${current==="admin"?"selected":""}>Admin</option><option value="staff" ${current==="staff"?"selected":""}>Staff</option><option value="developer" ${current==="developer"?"selected":""}>Developer</option></select></td><td style="text-align:right"><button class="pill-btn small primary" onclick="saveDeveloperRole('${escapeHTML(role.id)}')">Save role</button></td></tr>`;
+  }).join("") : `<tr class="empty-row"><td colspan="4">No role records available.</td></tr>`;
+}
+
+async function saveDeveloperRole(uid){
+  if(!session.isDeveloper || !uid) return;
+  const select = document.getElementById(`security-role-${uid}`);
+  if(!select) return;
+  try{
+    await withTimeout(db.collection("userRoles").doc(uid).set({role:select.value},{merge:true}),10000);
+    const record = securityRoles.find(item=>item.id===uid);
+    if(record) record.role = select.value;
+    showToast("Firebase role updated");
+  }catch(error){
+    console.error("Could not update Firebase role:", error);
+    showToast("Could not update Firebase role");
+  }
+}
+
 function openAdminNameModal(currentUsername){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   openOverlay(`<h3>Edit name</h3><div class="sub">This updates the admin's login name only. Password stays the same.</div>
     <div class="field"><label>New name</label><input id="admin-new-name" value="${escapeHTML(currentUsername)}" autocomplete="off"></div>
     <div class="login-error" id="admin-name-error"></div>
@@ -3886,7 +3991,7 @@ async function saveAdminName(oldUsername){
 }
 
 function openTechnicianNameModal(currentName){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   openOverlay(`<h3>Edit technician name</h3><div class="sub">This updates the technician name across jobs, attendance, profiles, commissions and access.</div>
     <div class="field"><label>New name</label><input id="technician-new-name" value="${escapeHTML(currentName)}" autocomplete="off"></div>
     <div class="login-error" id="technician-name-error"></div>
@@ -3916,7 +4021,7 @@ function saveTechnicianName(oldName){
 }
 
 function openAdminAccountModal(username=""){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const editing = username ? state.adminAccounts.find(account=>account.username===username) : null;
   openOverlay(`<h3>${editing ? "Edit admin profile" : "Add admin profile"}</h3><div class="sub">Admin passwords are managed by Firebase Authentication and are never stored in this app.</div>
     <div class="field"><label>Display name</label><input id="admin-account-username" value="${editing ? escapeHTML(editing.username) : ""}" autocomplete="off" placeholder="e.g. Jaja"></div>
@@ -3926,7 +4031,7 @@ function openAdminAccountModal(username=""){
 }
 
 async function saveAdminAccount(oldUsername){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const username = document.getElementById("admin-account-username").value.trim();
   const email = document.getElementById("admin-account-email").value.trim().toLowerCase();
   const error = document.getElementById("admin-account-error");
@@ -3966,7 +4071,7 @@ async function saveAdminAccount(oldUsername){
 }
 
 async function revokeAdminAccount(username){
-  if(!session.isAdmin || !confirm("Revoke this admin access?")) return;
+  if(!hasSecurityAccess() || !confirm("Revoke this admin access?")) return;
   const account = state.adminAccounts.find(item=>item.username===username);
   if(!account) return;
   if(session.adminUsername===username){
@@ -3992,7 +4097,7 @@ async function revokeAdminAccount(username){
 }
 
 async function restoreAdminAccount(username){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const account = state.adminAccounts.find(item=>item.username===username);
   if(!account) return;
   try{
@@ -4009,7 +4114,7 @@ async function restoreAdminAccount(username){
 }
 
 function openStaffAccountModal(editId="", technician=""){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const editing = editId ? state.staffAccounts.find(item=>item.id===editId) : null;
   const selectedTech = editing ? editing.technician : technician;
   const options = TECHS.map(tech=>`<option value="${escapeHTML(tech)}" ${tech===selectedTech ? "selected" : ""}>${escapeHTML(tech)}</option>`).join("");
@@ -4024,7 +4129,7 @@ function openStaffAccountModal(editId="", technician=""){
 }
 
 async function saveStaffAccount(id){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const technician = document.getElementById("staff-account-tech").value;
   const email = document.getElementById("staff-account-email").value.trim().toLowerCase();
   const error = document.getElementById("staff-account-error");
@@ -4060,7 +4165,7 @@ async function saveStaffAccount(id){
 }
 
 async function revokeStaffAccount(id){
-  if(!session.isAdmin || !confirm("Revoke this technician's access? This will also remove the technician from future Add Job assignments.")) return;
+  if(!hasSecurityAccess() || !confirm("Revoke this technician's access? This will also remove the technician from future Add Job assignments.")) return;
   const account = (state.staffAccounts || []).find(item=>item.id===id);
   if(!account) return;
   const technician = account.technician || "";
@@ -4084,7 +4189,7 @@ async function revokeStaffAccount(id){
 }
 
 async function restoreStaffAccount(id){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const account = (state.staffAccounts || []).find(item=>item.id===id);
   if(!account) return;
   try{
@@ -4104,7 +4209,7 @@ async function restoreStaffAccount(id){
 }
 
 async function deleteAdminAccount(username){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const account = state.adminAccounts.find(item=>item.username===username);
   if(!account) return;
   if(session.adminUsername===username){ showToast("You cannot delete the admin account currently in use"); return; }
@@ -4122,7 +4227,7 @@ async function deleteAdminAccount(username){
 }
 
 async function deleteStaffAccount(id){
-  if(!session.isAdmin) return;
+  if(!hasSecurityAccess()) return;
   const account = (state.staffAccounts || []).find(item=>item.id===id);
   if(!account) return;
   if(!confirm(`Delete Staff Access for ${account.email || account.technician || "this account"}? This removes the GIDS access record.`)) return;
