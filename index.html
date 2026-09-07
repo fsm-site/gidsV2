@@ -3397,7 +3397,13 @@ async function attemptLogin(){
     const adminEmail = (user.email || "").trim().toLowerCase();
     let adminSnap;
     try{
-      adminSnap = await withTimeout(db.collection("adminAccounts").where("email","==",adminEmail).get(), 10000);
+      adminSnap = await withTimeout(
+        db.collection("adminAccounts")
+          .where("email","==",adminEmail)
+          .where("branchId","==",currentBranchId())
+          .get(),
+        10000
+      );
     }catch(accessError){
       console.error("Could not read Admin Access during login:", accessError);
       await firebase.auth().signOut();
@@ -3509,7 +3515,13 @@ async function attemptStaffLogin(){
     // Staff Access is also cloud-authoritative; query the exact Firebase email
     // instead of depending on a stale/local access-directory snapshot.
     const staffEmail = (user.email || "").trim().toLowerCase();
-    const staffSnap = await withTimeout(db.collection("staffAccounts").where("email","==",staffEmail).get(), 10000);
+    const staffSnap = await withTimeout(
+      db.collection("staffAccounts")
+        .where("email","==",staffEmail)
+        .where("branchId","==",currentBranchId())
+        .get(),
+      10000
+    );
     const account = staffSnap.docs.length ? {id:staffSnap.docs[0].id, ...staffSnap.docs[0].data()} : null;
     if(account){
       const byId = new Map((state.staffAccounts || []).map(a=>[a.id,a]));
