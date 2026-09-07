@@ -60,7 +60,7 @@ function fmtDate(value){
   if(!value) return "—";
   if(value.toDate) value=value.toDate();
   const d=new Date(value);
-  return Number.isNaN(d.getTime())?"—":d.toLocaleString(undefined,{month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
+  return Number.isNaN(d.getTime())?"—":d.toLocaleString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"});
 }
 function peso(value){
   const n=Number(value||0);
@@ -69,7 +69,7 @@ function peso(value){
 function fmtDateOnly(value){
   if(!value) return "—";
   const d=new Date(value);
-  return Number.isNaN(d.getTime())?"—":d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+  return Number.isNaN(d.getTime())?"—":d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric"});
 }
 function showError(msg){result.innerHTML=`<div class="error">${esc(msg)}</div>`;}
 const TRACKER_STEPS=[
