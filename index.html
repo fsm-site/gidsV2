@@ -482,7 +482,8 @@
   .install-app{ display:none; }
   .install-app.visible{ display:inline-flex; }
   #install-app{ position:fixed; right:22px; bottom:54px; z-index:20; }
-  .developer-access-link{ position:fixed; right:22px; bottom:18px; z-index:18; border:0; background:none; color:rgba(141,160,196,.62); cursor:pointer; font:500 10px/1.3 'Inter',sans-serif; letter-spacing:.2px; padding:4px; }
+  .developer-access-link{ display:none; position:fixed; right:22px; bottom:18px; z-index:18; border:0; background:none; color:rgba(141,160,196,.62); cursor:pointer; font:500 10px/1.3 'Inter',sans-serif; letter-spacing:.2px; padding:4px; }
+  body.login-mode .developer-access-link{ display:block; }
   .developer-access-link:hover{ color:var(--blue-light); text-decoration:underline; }
   .global-actions{ position:fixed; top:18px; right:190px; z-index:30; display:flex; align-items:center; gap:8px; }
   body.login-mode .global-actions{ display:none; }
