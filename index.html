@@ -1491,7 +1491,7 @@ function applySubscriptionBranches(){
 }
 const TECHS = ["Tristan","Jaja","Peypey","Kakai"];
 const SERVICE_TYPES = ["Labor","Parts & Accessories"];
-const PAYMENT_MODES = ["Cash","E-Wallet"];
+const PAYMENT_MODES = ["Cash","E-Wallet","Mix"];
 const JOB_STATUSES = ["Received","In Repair","Ready for Pickup","Claimed"];
 const LOW_STOCK_THRESHOLD = 3;
 function normalizeJobStatus(status){
@@ -2283,6 +2283,8 @@ async function createStaffJobInCollection(job){
     amount: Number(job.amount || 0),
     amountPaid: Number(job.amountPaid || 0),
     balance: Number(job.balance || 0),
+    cashAmount: Number(job.cashAmount || 0),
+    eWalletAmount: Number(job.eWalletAmount || 0),
     invoiceStatus: job.invoiceStatus || "",
     paymentMode: job.paymentMode || "",
     clientTip: Number(job.clientTip || 0),
@@ -2335,6 +2337,7 @@ async function syncAdminJobTransaction(job, inventoryIds=[]){
     serviceNo: job.serviceNo || "", receiptNo: job.receiptNo || "", tech: job.tech || "",
     customerName: job.customerName || "", fee: Number(job.fee || 0), amount: Number(job.amount || 0),
     amountPaid: Number(job.amountPaid || 0), balance: Number(job.balance || 0),
+    cashAmount: Number(job.cashAmount || 0), eWalletAmount: Number(job.eWalletAmount || 0),
     invoiceStatus: job.invoiceStatus || "", paymentMode: job.paymentMode || "", clientTip: Number(job.clientTip || 0)
   };
 
@@ -3297,6 +3300,23 @@ function openDeveloperAccess(){
   switchView("developer-login");
 }
 
+function hardRefreshApp(){
+  window.location.reload();
+}
+
+function ensureSharedTopbarActions(key, rightEl){
+  if(!rightEl || ["role-select", "admin-login", "staff-gate", "developer-login"].includes(key)) return;
+  if(!document.getElementById("refresh-app-btn")){
+    rightEl.insertAdjacentHTML("afterbegin", `<button class="pill-btn ghost" id="refresh-app-btn" type="button" onclick="hardRefreshApp()" title="Reload the app and re-sync your data">Refresh</button>`);
+  }
+  if((session.isAdmin || session.staffUnlocked) && !rightEl.querySelector('[data-shared-calculator], [onclick*="openCalculatorModal"]')){
+    rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn ghost" data-shared-calculator type="button" onclick="openCalculatorModal()">Calculator</button>`);
+  }
+  if(!rightEl.querySelector('[data-shared-logout], [onclick*="logout"]')){
+    rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn danger" data-shared-logout type="button" onclick="logout()">Log out</button>`);
+  }
+}
+
 function switchView(key){
   const shell = document.querySelector(".shell");
   const loginView = ["role-select", "admin", "admin-login", "staff-gate", "developer-login"].includes(key) && !session.isAdmin && !session.isDeveloper && !session.staffUnlocked;
@@ -3430,6 +3450,7 @@ function switchView(key){
     renderStaffAccess();
     renderAdminAccess();
   }
+  ensureSharedTopbarActions(key, rightEl);
   renderAll();
 }
 
@@ -5244,6 +5265,15 @@ function updateAppointmentDateDisplay(value){
   if(el) el.textContent = value ? formatSiteDateTime(value) : "";
 }
 
+function additionalServiceRowsHTML(items=[]){
+  return items.map((item,index)=>`
+    <div class="additional-service-row" data-service-row="${index}" style="display:grid;grid-template-columns:minmax(0,1fr) 130px 34px;gap:8px;align-items:end;margin-top:8px;">
+      <div class="field" style="margin-bottom:0;"><label>Service type</label><select class="f-additional-service"><option value="">Select service...</option>${SERVICE_TYPES.map(service=>`<option value="${escapeHTML(service)}" ${item.serviceType===service?"selected":""}>${escapeHTML(service)}</option>`).join("")}</select></div>
+      <div class="field" style="margin-bottom:0;"><label>Amount (₱)</label><input class="f-additional-amount" type="number" min="0" step="0.01" value="${Number(item.amount||0)}" oninput="recalcTotal()"></div>
+      <button class="pill-btn ghost" type="button" title="Remove service" aria-label="Remove service" onclick="this.closest('.additional-service-row').remove(); recalcTotal();">×</button>
+    </div>`).join("");
+}
+
 function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   // Dashboard Add Job is shared by Admin and Staff. Infer the active role so
   // an Admin opening Add Job from the main dashboard uses Admin cloud writes.
@@ -5299,8 +5329,18 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
       <div class="field"><label>Quantity</label><input id="f-qty" type="number" min="1" value="${editing&&editing.quantity?editing.quantity:1}" oninput="recalcTotal()"></div>
       <div class="field"><label>Amount (₱) <span style="font-weight:400;color:var(--muted)">per item</span></label><input id="f-amount" type="number" min="0" placeholder="0" value="${editing?(editing.amount!=null?editing.amount:editing.fee):""}" oninput="recalcTotal()"></div>
     </div>
-    <div class="field"><label>Total amount (₱) <span style="font-weight:400;color:var(--muted)">quantity × amount</span></label><input id="f-fee" type="number" min="0" value="${editing?editing.fee:0}" readonly style="background:var(--panel-2); font-weight:700;"></div>
+    <div class="field"><label>More Services Added?</label><select id="f-more-services" onchange="toggleAdditionalServices()"><option value="No" selected>No</option><option value="Yes">Yes</option></select></div>
+    <div id="f-additional-services-wrap" style="display:none;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--panel-2);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;"><strong>Additional services</strong><button class="pill-btn small ghost" type="button" onclick="addAdditionalServiceRow()">+ Add service</button></div>
+      <div id="f-additional-services">${additionalServiceRowsHTML(editing?.serviceItems?.slice(1) || [])}</div>
+    </div>
+    <div class="field"><label>Total amount (₱) <span style="font-weight:400;color:var(--muted)">all services included</span></label><input id="f-fee" type="number" min="0" value="${editing?editing.fee:0}" readonly style="background:var(--panel-2); font-weight:700;"></div>
     <div class="field"><label>Mode of payment</label><select id="f-payment"><option value="">Select payment…</option>${paymentOptions}</select></div>
+    <div id="f-mix-wrap" style="display:none;grid-template-columns:1fr 1fr;gap:12px;">
+      <div class="field"><label>Cash amount (₱)</label><input id="f-cash-amount" type="number" min="0" step="0.01" placeholder="0" value="${editing?.cashAmount || ""}" oninput="recalcMixPayment()"></div>
+      <div class="field"><label>E-Wallet amount (₱)</label><input id="f-ewallet-amount" type="number" min="0" step="0.01" placeholder="0" value="${editing?.eWalletAmount || ""}" oninput="recalcMixPayment()"></div>
+    </div>
+    <div id="f-mix-total" class="stat-sub" style="display:none;text-align:right;margin-top:-8px;"></div>
     <div class="field"><label>Client Tip (₱) <span style="font-weight:400;color:var(--muted)">internal only — not shown on receipt</span></label><input id="f-client-tip" type="number" min="0" step="0.01" placeholder="0" value="${editing&&editing.clientTip!=null?editing.clientTip:""}"></div>
     <div class="field"><label>Invoice status</label><select id="f-invoice-status" onchange="onInvoiceStatusChange()"><option value="Paid" ${!editing||editing.invoiceStatus==="Paid"?"selected":""}>Paid</option><option value="Unpaid" ${editing&&editing.invoiceStatus==="Unpaid"?"selected":""}>Unpaid</option><option value="Partial" ${editing&&editing.invoiceStatus==="Partial"?"selected":""}>Partial</option></select></div>
     <div class="field" id="f-partial-wrap" style="display:none;">
@@ -5340,6 +5380,13 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   const svcEl = document.getElementById("f-service");
   if(editing) svcEl.value = editing.serviceType;
   onServiceTypeChange();
+  const moreServicesEl = document.getElementById("f-more-services");
+  if(editing && editing.serviceItems && editing.serviceItems.length > 1){
+    moreServicesEl.value = "Yes";
+  }
+  toggleAdditionalServices();
+  document.getElementById("f-payment").addEventListener("change", onPaymentModeChange);
+  onPaymentModeChange();
   onInvoiceStatusChange();
   const modalBody = document.getElementById("modal-body");
   modalBody.addEventListener("keydown", event=>{
@@ -5395,8 +5442,49 @@ function recalcTotal(){
   if(!qtyEl || !amtEl || !feeEl) return;
   const qty = Math.max(1, Number(qtyEl.value || 1));
   const amt = Number(amtEl.value || 0);
-  feeEl.value = Number((qty * amt).toFixed(2));
+  const additionalTotal = [...document.querySelectorAll(".f-additional-amount")]
+    .reduce((total,input)=>total + Math.max(0, Number(input.value || 0)), 0);
+  feeEl.value = Number((qty * amt + additionalTotal).toFixed(2));
   recalcBalance();
+  recalcMixPayment();
+}
+
+function toggleAdditionalServices(){
+  const selector = document.getElementById("f-more-services");
+  const wrap = document.getElementById("f-additional-services-wrap");
+  if(!selector || !wrap) return;
+  wrap.style.display = selector.value === "Yes" ? "block" : "none";
+  recalcTotal();
+}
+
+function addAdditionalServiceRow(){
+  const container = document.getElementById("f-additional-services");
+  if(!container) return;
+  const index = container.querySelectorAll(".additional-service-row").length;
+  container.insertAdjacentHTML("beforeend", additionalServiceRowsHTML([{serviceType:"",amount:0}].map(item=>({...item,index}))));
+  toggleAdditionalServices();
+}
+
+function onPaymentModeChange(){
+  const payment = document.getElementById("f-payment");
+  const mixWrap = document.getElementById("f-mix-wrap");
+  const mixTotal = document.getElementById("f-mix-total");
+  if(!payment || !mixWrap || !mixTotal) return;
+  const isMix = payment.value === "Mix";
+  mixWrap.style.display = isMix ? "grid" : "none";
+  mixTotal.style.display = isMix ? "block" : "none";
+  recalcMixPayment();
+}
+
+function recalcMixPayment(){
+  const payment = document.getElementById("f-payment");
+  const totalEl = document.getElementById("f-mix-total");
+  if(!payment || payment.value !== "Mix" || !totalEl) return;
+  const cash = Number(document.getElementById("f-cash-amount")?.value || 0);
+  const ewallet = Number(document.getElementById("f-ewallet-amount")?.value || 0);
+  const fee = Number(document.getElementById("f-fee")?.value || 0);
+  totalEl.textContent = `Mixed payment total: ${peso(cash + ewallet)} / ${peso(fee)}`;
+  totalEl.style.color = Math.abs(cash + ewallet - fee) < 0.01 ? "var(--good)" : "var(--warn)";
 }
 
 /* Shows/hides the Amount paid + Balance fields based on Invoice status, and recalculates */
@@ -5477,6 +5565,8 @@ async function saveTxn(id, isAdmin){
   const amount = Number(document.getElementById("f-amount").value || 0);
   const date = document.getElementById("f-date").value || todayStr();
   const paymentMode = document.getElementById("f-payment").value.trim();
+  const cashAmount = Number(document.getElementById("f-cash-amount")?.value || 0);
+  const eWalletAmount = Number(document.getElementById("f-ewallet-amount")?.value || 0);
   const clientTipRaw = document.getElementById("f-client-tip").value.trim();
   const clientTip = clientTipRaw === "" ? 0 : Number(clientTipRaw);
   if(!Number.isFinite(clientTip) || clientTip < 0){ showToast("Enter a valid Client Tip amount"); return; }
@@ -5487,16 +5577,32 @@ async function saveTxn(id, isAdmin){
   if(!tech || !serviceType){ showToast("Tech and service type are required"); return; }
   if(!paymentMode){ showToast("Mode of payment is required"); return; }
 
+  const additionalServices = [...document.querySelectorAll(".additional-service-row")].map(row=>({
+    serviceType: row.querySelector(".f-additional-service")?.value.trim() || "",
+    amount: Number(row.querySelector(".f-additional-amount")?.value || 0)
+  }));
+  if(additionalServices.some(item=>!item.serviceType || !Number.isFinite(item.amount) || item.amount < 0)){
+    showToast("Complete each additional service and amount");
+    return;
+  }
+  const serviceItems = [{serviceType, amount:Number((quantity * amount).toFixed(2))}, ...additionalServices];
+
   let amountPaid = 0, balance = 0;
   if(invoiceStatus === "Paid"){
     amountPaid = fee; balance = 0;
   } else if(invoiceStatus === "Unpaid"){
     amountPaid = 0; balance = fee;
   } else if(invoiceStatus === "Partial"){
-    amountPaid = Number(document.getElementById("f-amount-paid").value || 0);
+    amountPaid = paymentMode === "Mix" ? cashAmount + eWalletAmount : Number(document.getElementById("f-amount-paid").value || 0);
     if(amountPaid <= 0){ showToast("Enter the amount paid so far"); return; }
     if(amountPaid >= fee){ showToast("Amount paid must be less than the total amount for a Partial invoice"); return; }
     balance = Number((fee - amountPaid).toFixed(2));
+  }
+  if(paymentMode === "Mix"){
+    const mixTotal = Number((cashAmount + eWalletAmount).toFixed(2));
+    if(invoiceStatus === "Paid" && Math.abs(mixTotal - fee) > 0.01){ showToast("Cash and E-Wallet amounts must equal the total amount"); return; }
+    if(invoiceStatus === "Unpaid" && mixTotal > 0){ showToast("Unpaid Mix payments must have zero Cash and E-Wallet amounts"); return; }
+    if(invoiceStatus === "Partial" && Math.abs(mixTotal - amountPaid) > 0.01){ showToast("Cash and E-Wallet amounts must equal the amount paid"); return; }
   }
 
   let laborName = "", phoneBrand = "", phoneModel = "", itemUsed = "";
@@ -5525,7 +5631,7 @@ async function saveTxn(id, isAdmin){
 
   if(id){
     const t = state.transactions.find(x=>x.id===id);
-    Object.assign(t, {tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, appointmentAt, jobStatus:normalizeJobStatus(jobStatus), invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode, clientTip});
+    Object.assign(t, {tech, serviceType, serviceItems, laborName, phoneBrand, phoneModel, itemUsed, fee, branch, customerName, customerPhone, appointmentAt, jobStatus:normalizeJobStatus(jobStatus), invoiceStatus, amountPaid, balance, description, quantity, amount, date, paymentMode, cashAmount, eWalletAmount, clientTip});
     if(Object.prototype.hasOwnProperty.call(t,"customerEmail")) delete t.customerEmail;
   } else {
     // Real jobs use the persistent 3-digit sequence. Trial jobs are clearly
@@ -5549,7 +5655,7 @@ async function saveTxn(id, isAdmin){
       ? trialTrackingNo("RCPT")
       : serviceNo.replace(/^SVC-/, "RCPT-");
     if(!trialJob) state.nextSeq = seq + 1;
-    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, clientTip, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
+    const newJob = {id:newId, ts:Date.now(), date, branch, tech, serviceType, serviceItems, laborName, phoneBrand, phoneModel, itemUsed, fee, customerName, customerPhone, appointmentAt, jobStatus, invoiceStatus, amountPaid, balance, description, quantity, amount, paymentMode, cashAmount, eWalletAmount, clientTip, serviceNo, receiptNo, isTrial:trialJob, statusToken: makeRepairStatusToken()};
     state.transactions.push(newJob);
     if(staffCreated){
       try{
