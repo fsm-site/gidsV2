@@ -407,14 +407,14 @@
   }
   #app-splash img{
     max-width:min(54vw, 420px);
-    max-height:80vh;
+    max-height:65vh;
     width:auto; height:auto;
     object-fit:contain;
-    transform:scale(1.5);
+    transform:scale(1.15);
   }
   #app-splash.hide{ opacity:0; pointer-events:none; }
   .splash-loader{ width:min(340px,78vw); color:#c8efff; text-align:center; font-family:'Inter',sans-serif; text-shadow:0 1px 10px rgba(103,199,255,.35); }
-  .splash-status{ display:flex; align-items:center; justify-content:center; gap:8px; font-size:13px; font-weight:800; letter-spacing:2.4px; margin-bottom:10px; color:#fff; text-shadow:0 0 12px rgba(103,199,255,.9); }
+  .splash-status{ display:flex; align-items:center; justify-content:center; gap:8px; font-size:15px; font-weight:800; letter-spacing:2.2px; margin-bottom:10px; color:#fff; text-shadow:0 0 12px rgba(103,199,255,.9); white-space:nowrap; }
   .splash-status::before{ content:""; width:6px; height:6px; border-radius:50%; background:#67c7ff; box-shadow:0 0 10px #67c7ff; animation:splashPulse .8s ease-in-out infinite alternate; }
   .splash-track{ height:6px; overflow:hidden; border:1px solid rgba(157,221,255,.7); background:rgba(157,221,255,.2); border-radius:5px; }
   .splash-progress{ height:100%; width:38%; background:linear-gradient(90deg,transparent,#1b5fae 35%,#67c7ff 70%,transparent); box-shadow:0 0 14px rgba(103,199,255,.8); animation:splashScan 1.05s ease-in-out infinite; }
