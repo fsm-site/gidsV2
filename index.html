@@ -57,6 +57,8 @@
 
   /* ---------- Shell ---------- */
   .shell{ display:flex; min-height:100vh; position:relative; z-index:1; }
+  .shell.login-mode .rail{ display:none; }
+  .shell.login-mode .main{ width:100%; }
 
   .rail{
     width:220px; flex:none;     background:linear-gradient(180deg,rgba(10,24,48,.96),rgba(7,16,32,.92)); color:#DCE6F7;
@@ -802,7 +804,7 @@
 </button>
 <button class="developer-access-link" type="button" onclick="openDeveloperAccess()">Developer access</button>
 
-<div class="shell">
+<div class="shell login-mode">
   <!-- ============ LEFT RAIL ============ -->
   <div class="rail">
     <div class="brand">
@@ -3237,6 +3239,9 @@ function openDeveloperAccess(){
 }
 
 function switchView(key){
+  const shell = document.querySelector(".shell");
+  const loginView = ["role-select", "admin", "admin-login", "staff-gate", "developer-login"].includes(key) && !session.isAdmin && !session.isDeveloper && !session.staffUnlocked;
+  if(shell) shell.classList.toggle("login-mode", loginView);
   document.querySelectorAll(".nav-item").forEach(n=>n.classList.remove("active"));
   const navEl = document.querySelector(`.nav-item[data-view="${key}"]`);
   if(navEl) navEl.classList.add("active");
