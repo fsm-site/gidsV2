@@ -1365,10 +1365,10 @@
           </div>
           <div class="panel">
             <div class="panel-head">
-              <div><h3>Admin access</h3><div class="desc">Manage administrator access and Firebase emails.</div></div>
+              <div><h3>Admin access</h3><div class="desc">Manage administrator usernames and passwords.</div></div>
               <button class="pill-btn primary" onclick="openAdminAccountModal()">+ Add admin</button>
             </div>
-            <table><thead><tr><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
+            <table><thead><tr><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="admin-access-body"></tbody></table>
           </div>
         </div>
       </div>
@@ -1646,38 +1646,20 @@ function restoreBrowserSession(){
     return saved.view;
   }catch(e){ return null; }
 }
-async function getFirebaseRoleDetails(user){
-  if(!user || user.isAnonymous){
-    return {role:null, exists:false, errorCode:"no-user", error:null};
-  }
+async function getFirebaseRole(user){
+  if(!user || user.isAnonymous) return null;
   try{
     const roleSnap = await withTimeout(
       db.collection("userRoles").doc(user.uid).get(),
       8000
     );
-    if(!roleSnap.exists){
-      return {role:null, exists:false, errorCode:"missing-role", error:null};
-    }
-    const rawRole = String(roleSnap.data()?.role || "").trim().toLowerCase();
-    const role = rawRole === "admin" || rawRole === "staff" ? rawRole : null;
-    return {role, exists:true, errorCode:role ? null : "invalid-role", error:null};
+    if(!roleSnap.exists) return null;
+    const role = roleSnap.data()?.role;
+    return role === "admin" || role === "staff" ? role : null;
   }catch(e){
     console.error("Could not read Firebase role:", e);
-    return {role:null, exists:false, errorCode:e?.code || "role-read-failed", error:e};
+    return null;
   }
-}
-async function getFirebaseRole(user){
-  const details = await getFirebaseRoleDetails(user);
-  return details.role;
-}
-function describeFirebaseRoleFailure(details, roleLabel){
-  if(!details) return `Could not verify the ${roleLabel} role.`;
-  if(details.errorCode === "missing-role") return `This Firebase account has no userRoles record for its UID.`;
-  if(details.errorCode === "invalid-role") return `The userRoles record exists, but its role is not admin or staff.`;
-  if(details.errorCode === "permission-denied" || details.errorCode === "permission-denied") return `Firebase signed in, but Firestore denied access to this account's userRoles record.`;
-  if(details.errorCode === "deadline-exceeded") return `Firebase signed in, but the userRoles lookup timed out.`;
-  if(details.error) return `Firebase signed in, but the userRoles lookup failed (${details.errorCode || "unknown error"}).`;
-  return `This Firebase account is not assigned a ${roleLabel} role.`;
 }
 
 async function restoreAuthenticatedSession(){
@@ -1700,19 +1682,6 @@ async function restoreAuthenticatedSession(){
         (account.email || "").trim().toLowerCase() === email
       );
       if(!staffAccount) return null;
-      if(String(staffAccount.status || "active").toLowerCase() === "revoked") return null;
-      if(staffAccount.firebaseUid && staffAccount.firebaseUid !== user.uid) return null;
-
-      // Once the authenticated Firebase identity is known, bind its UID to the
-      // cloud access record. This makes UID the permanent identity link while
-      // keeping email as the visible lookup field in Security.
-      if(!staffAccount.firebaseUid){
-        try{
-          await db.collection("staffAccounts").doc(staffAccount.id).set({firebaseUid:user.uid}, {merge:true});
-          staffAccount.firebaseUid = user.uid;
-          writeLocal();
-        }catch(e){ console.warn("Could not bind Staff Firebase UID:", e); }
-      }
 
       session.staffUnlocked = true;
       session.isAdmin = false;
@@ -1725,29 +1694,98 @@ async function restoreAuthenticatedSession(){
       const adminAccount = (state.adminAccounts || []).find(account =>
         (account.email || "").trim().toLowerCase() === email
       );
-      if(!adminAccount) return null;
-      if(String(adminAccount.status || "active").toLowerCase() === "revoked") return null;
-      if(adminAccount.firebaseUid && adminAccount.firebaseUid !== user.uid) return null;
-
-      if(!adminAccount.firebaseUid){
-        try{
-          await db.collection("adminAccounts").doc(adminAccount.id || stableAdminDocId(adminAccount)).set({firebaseUid:user.uid}, {merge:true});
-          adminAccount.firebaseUid = user.uid;
-          writeLocal();
-        }catch(e){ console.warn("Could not bind Admin Firebase UID:", e); }
-      }
-
       session.isAdmin = true;
       session.staffUnlocked = true;
-      session.adminUsername = adminAccount.username || state.admin?.username || user.email || "Admin";
+      session.adminUsername = adminAccount?.username || state.admin?.username || user.email || "Admin";
       return "admin";
     }
 
+    // A signed-in Firebase account without an explicit application role
+    // is not allowed into either Admin or Staff mode.
     return null;
   }catch(e){
     console.warn("Could not restore Firebase session:", e);
     return null;
   }
+}
+function clearBrowserSession(){
+  try{ sessionStorage.removeItem(BROWSER_SESSION_KEY); }catch(e){}
+}
+function currentUserName(){
+  return session.isAdmin ? (session.adminUsername || "Admin") : (session.staffTechnician || "Staff");
+}
+
+function defaultState(){
+  return {
+    adminAccounts: [],
+    admin:{ uid:"", email:"", username:"" },
+    subscription:{ status:"trial", plan:"trial", startsAt:null, expiresAt:null },
+    transactions:[],
+    nextSeq:1,
+    inventory:[
+      {id:uid(), itemName:"LCD - Ordinary OLED", quantity:15, cost:1200, price:1800, used:0, supplier:"Local Parts Co.", sku:"LCD-OLED-01", reorderLevel:3, location:"Downtown"},
+      {id:uid(), itemName:"LCD - Soft OLED", quantity:10, cost:2000, price:3000, used:0, supplier:"Local Parts Co.", sku:"LCD-SOFT-01", reorderLevel:3, location:"Downtown"},
+      {id:uid(), itemName:"Battery - Aftermarket", quantity:20, cost:400, price:700, used:0, supplier:"PowerCell Supply", sku:"BAT-AF-01", reorderLevel:3, location:"Northside"},
+      {id:uid(), itemName:"Battery - Genuine", quantity:10, cost:900, price:1400, used:0, supplier:"PowerCell Supply", sku:"BAT-GEN-01", reorderLevel:3, location:"Northside"},
+      {id:uid(), itemName:"Charging Flex", quantity:20, cost:600, price:1200, used:0, supplier:"Local Parts Co.", sku:"FLEX-CHG-01", reorderLevel:3, location:"Downtown"},
+      {id:uid(), itemName:"Back Glass", quantity:12, cost:500, price:900, used:0, supplier:"GlassWorks", sku:"GLASS-BG-01", reorderLevel:3, location:"Downtown"},
+      {id:uid(), itemName:"Camera Lens", quantity:15, cost:150, price:350, used:0, supplier:"GlassWorks", sku:"LENS-01", reorderLevel:3, location:"Northside"}
+    ],
+    suppliers:[
+      {id:uid(), name:"Local Parts Co.", contact:"", phone:""},
+      {id:uid(), name:"PowerCell Supply", contact:"", phone:""},
+      {id:uid(), name:"GlassWorks", contact:"", phone:""}
+    ],
+    stockMovements:[],
+    staffProfiles:[],
+    commissionRates:{},
+    attendance:[],
+    staffAccounts:[],
+    deletedRecords:{transactions:[], inventory:[], suppliers:[], stockMovements:[], staffProfiles:[], attendance:[], staffAccounts:[]},
+    removedTechnicians:[],
+    removedAdminUsernames:[]
+  };
+}
+
+function withTimeout(promise, ms){
+  return Promise.race([
+    promise,
+    new Promise((_, reject)=>setTimeout(()=>reject(new Error("Request timed out")), ms))
+  ]);
+}
+const THEME_ICONS = {
+  dark: `<circle cx="12" cy="12" r="4"></circle><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"></path>`,
+  light: `<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>`
+};
+function applyThemeToggleUI(theme){
+  const icon = document.getElementById("theme-toggle-icon");
+  const label = document.getElementById("theme-toggle-label");
+  if(icon) icon.innerHTML = theme==="dark" ? THEME_ICONS.light : THEME_ICONS.dark;
+  if(label) label.textContent = theme==="dark" ? "Light mode" : "Dark mode";
+}
+/* Reloads the page (with a cache-busting param) so any newly-deployed code loads,
+   while state.transactions etc. still come from localStorage/Firebase as usual. */
+function hardRefreshApp(){
+  try{
+    const url = new URL(window.location.href);
+    url.searchParams.set("_r", Date.now().toString());
+    window.location.href = url.toString();
+  }catch(e){
+    window.location.reload();
+  }
+}
+function toggleTheme(){
+  const current = document.documentElement.getAttribute("data-theme")==="dark" ? "dark" : "light";
+  const next = current==="dark" ? "light" : "dark";
+  document.documentElement.setAttribute("data-theme", next);
+  try{ localStorage.setItem("gids_theme", next); }catch(e){}
+  applyThemeToggleUI(next);
+}
+function hideSplash(){
+  const el = document.getElementById("app-splash");
+  if(!el) return;
+  el.classList.add("hide");
+  setTimeout(()=>el.remove(), 550);
 }
 
 function subscriptionDateValue(value){
@@ -2013,9 +2051,7 @@ function normalizeAdminAccounts(accounts){
       ...raw,
       id: raw.id || stableAdminDocId({email, username}),
       username,
-      email,
-      status: String(raw.status || "active").toLowerCase() === "revoked" ? "revoked" : "active",
-      firebaseUid: String(raw.firebaseUid || "").trim()
+      email
     });
   });
   return out;
@@ -2061,8 +2097,8 @@ function mergeStates(cloud, local){
   merged.staffProfiles = mergeArrayByKey(cloud.staffProfiles, local.staffProfiles, p=>p.id);
   merged.commissionRates = {...(cloud.commissionRates||{}), ...(local.commissionRates||{})};
   merged.attendance = mergeArrayByKey(cloud.attendance, local.attendance, a=>a.id);
-  merged.staffAccounts = Array.isArray(cloud.staffAccounts) ? cloud.staffAccounts : (Array.isArray(local.staffAccounts) ? local.staffAccounts : []);
-  merged.adminAccounts = Array.isArray(cloud.adminAccounts) ? cloud.adminAccounts : (Array.isArray(local.adminAccounts) ? local.adminAccounts : []);
+  merged.staffAccounts = mergeArrayByKey(cloud.staffAccounts, local.staffAccounts, a=>a.id);
+  merged.adminAccounts = mergeArrayByKey(cloud.adminAccounts, local.adminAccounts, a=>a.username);
   merged.deletedRecords = {};
   ["transactions","inventory","suppliers","stockMovements","staffProfiles","attendance","staffAccounts"].forEach(collection=>{
     merged.deletedRecords[collection] = Array.from(new Set([
@@ -2472,10 +2508,25 @@ async function syncOperationalCollections(){
       mirror("inventoryPrivate", state.inventory);
       mirror("suppliers", state.suppliers);
       mirror("stockMovements", state.stockMovements);
-      // Security access directories are cloud-authoritative. They are written
-      // only by their dedicated Admin actions below, never by the broad
-      // operational sync. This prevents revoked/deleted access from being
-      // resurrected from stale local state after refresh.
+      mirror("staffAccounts", state.staffAccounts);
+
+      // Admin access profiles must have one stable document per Firebase email.
+      // Older versions could create duplicate admin profile documents; reconcile
+      // the whole branch here so stale duplicates are removed automatically.
+      state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
+      const desiredAdminIds = new Set();
+      state.adminAccounts.filter(a => a && (a.branchId || branchId) === branchId).forEach(account=>{
+        const id = account.id || stableAdminDocId(account);
+        account.id = id;
+        desiredAdminIds.add(id);
+        batch.set(db.collection("adminAccounts").doc(id), {...account, id, branchId}, {merge:true});
+      });
+      const adminSnap = await withTimeout(
+        db.collection("adminAccounts").where("branchId","==",branchId).get(), 10000
+      );
+      adminSnap.docs.forEach(doc=>{
+        if(!desiredAdminIds.has(doc.id)) batch.delete(doc.ref);
+      });
 
       // commissionRates is stored in app state as an object keyed by technician,
       // not an array. Mirror each rate as its own Firestore document.
@@ -3350,28 +3401,23 @@ async function attemptLogin(){
     await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, password);
     const user = userCredential.user;
+    await loadCloudStateAfterLogin();
 
-    // Resolve the Firebase role BEFORE loading appMeta. appMeta is protected by
-    // role/subscription rules, so trying to read it before the role is known
-    // caused valid Admin/Staff users to be reported as having no role.
-    const roleDetails = await getFirebaseRoleDetails(user);
-    const role = roleDetails.role;
+    // Firebase userRoles is now the source of truth for the application role.
+    const role = await getFirebaseRole(user);
 
     if(role === "staff"){
       await firebase.auth().signOut();
-      err.textContent = "This email is assigned as Staff. Please use Staff Login.";
+      err.textContent = "This email is assigned as staff. Please use Staff Login.";
       return;
     }
 
     if(role !== "admin"){
       await firebase.auth().signOut();
-      err.textContent = describeFirebaseRoleFailure(roleDetails, "Admin");
+      err.textContent = "This email is not assigned an Admin role.";
       return;
     }
 
-    // Establish the authenticated app role before any role-protected cloud reads.
-    session.isAdmin = true;
-    session.staffUnlocked = true;
     await loadSubscription();
     if(!subscriptionIsActive()){
       applySubscriptionAccess();
@@ -3381,27 +3427,10 @@ async function attemptLogin(){
 
     // Match the signed-in Firebase email to the Admin Access profile so the
     // greeting shows the admin's display name, not the Firebase email.
-    // Read the authoritative Admin Access record after the role is established.
-    const adminEmail = (user.email || "").trim().toLowerCase();
-    let adminSnap;
-    try{
-      adminSnap = await withTimeout(db.collection("adminAccounts").where("email","==",adminEmail).get(), 10000);
-    }catch(accessError){
-      console.error("Could not read Admin Access during login:", accessError);
-      await firebase.auth().signOut();
-      err.textContent = accessError?.code === "permission-denied"
-        ? "Firebase role verified, but Firestore denied access to Admin Access. Check the deployed Firestore rules."
-        : `Firebase role verified, but Admin Access could not be read (${accessError?.code || "unknown error"}).`;
-      return;
-    }
-    const adminAccount = adminSnap.docs.length ? {id:adminSnap.docs[0].id, ...adminSnap.docs[0].data()} : null;
-    if(!adminAccount || String(adminAccount.status || "active").toLowerCase() === "revoked"){
-      await firebase.auth().signOut();
-      err.textContent = "This Firebase email is not currently active in Admin Access.";
-      return;
-    }
-    state.adminAccounts = normalizeAdminAccounts([...(state.adminAccounts || []).filter(a=>a.id!==adminAccount.id), adminAccount]);
-    const adminName = adminAccount.username || state.admin?.username || user.email || "Admin";
+    const adminAccount = (state.adminAccounts || []).find(item =>
+      (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
+    );
+    const adminName = adminAccount?.username || state.admin?.username || user.email || "Admin";
 
     state.admin = {
       uid: user.uid,
@@ -3412,7 +3441,6 @@ async function attemptLogin(){
     session.adminUsername = adminName;
     session.isAdmin = true;
     session.staffUnlocked = true;
-    await loadCloudStateAfterLogin();
     await loadAdminCollections();
     await loadAttendanceFromCollection();
     await syncOperationalCollections();
@@ -3482,37 +3510,26 @@ async function attemptStaffLogin(){
     await firebase.auth().setPersistence(remember ? firebase.auth.Auth.Persistence.LOCAL : firebase.auth.Auth.Persistence.SESSION);
     const userCredential = await firebase.auth().signInWithEmailAndPassword(email, p);
     const user = userCredential.user;
+    await loadCloudStateAfterLogin();
 
-    // Resolve role first. Staff is intentionally not allowed to read appMeta.
-    const roleDetails = await getFirebaseRoleDetails(user);
-    const role = roleDetails.role;
+    const role = await getFirebaseRole(user);
     if(role !== "staff"){
       await firebase.auth().signOut();
       err.textContent = role === "admin"
-        ? "This email is assigned as Admin. Please use Admin Login."
-        : describeFirebaseRoleFailure(roleDetails, "Staff");
+        ? "This email is assigned as admin. Please use Admin Login."
+        : "This email is not assigned a Staff role.";
       return;
     }
 
-    // Staff Access is also cloud-authoritative; query the exact Firebase email
-    // instead of depending on a stale/local access-directory snapshot.
-    const staffEmail = (user.email || "").trim().toLowerCase();
-    const staffSnap = await withTimeout(db.collection("staffAccounts").where("email","==",staffEmail).get(), 10000);
-    const account = staffSnap.docs.length ? {id:staffSnap.docs[0].id, ...staffSnap.docs[0].data()} : null;
-    if(account){
-      const byId = new Map((state.staffAccounts || []).map(a=>[a.id,a]));
-      byId.set(account.id, account);
-      state.staffAccounts = [...byId.values()];
-    }
+    const account = (state.staffAccounts || []).find(item=>
+      (item.email || "").trim().toLowerCase() === (user.email || "").trim().toLowerCase()
+    );
     if(!account){
       await firebase.auth().signOut();
       err.textContent = "This staff email has not been assigned in the app yet.";
       return;
     }
 
-    // Establish Staff session state before loading Staff-authorized collections.
-    session.staffUnlocked = true;
-    session.isAdmin = false;
     await loadSubscription();
     if(!subscriptionIsActive()){
       applySubscriptionAccess();
@@ -3520,6 +3537,7 @@ async function attemptStaffLogin(){
       return;
     }
 
+    session.staffUnlocked = true;
     session.isAdmin = false;
     session.staffUsername = account.username || user.email;
     session.staffTechnician = canonicalStaffTechnicianName(account);
@@ -3781,37 +3799,13 @@ function canonicalStaffTechnicianName(accountOrValue){
   return value;
 }
 
-function accessActionOptions(account, type){
-  const status = String(account?.status || "active").toLowerCase();
-  const id = type === "staff" ? account.id : account.username;
-  const safeId = escapeHTML(String(id || ""));
-  const action = (name, value) => `<option value="${value}">${name}</option>`;
-  const options = [action(status === "revoked" ? "Revoked" : "Active", "current")];
-  if(status === "revoked") options.push(action("Restore", "restore"));
-  else options.push(action("Revoke", "revoke"));
-  options.push(action("Delete", "delete"));
-  return `<select class="access-action-select" data-account-type="${type}" data-account-id="${safeId}" onchange="handleAccessAction(this)">${options.join("")}</select>`;
-}
-
-function handleAccessAction(select){
-  const action = select.value;
-  const type = select.dataset.accountType;
-  const id = select.dataset.accountId;
-  select.value = "current";
-  if(action === "restore") return type === "staff" ? restoreStaffAccount(id) : restoreAdminAccount(id);
-  if(action === "revoke") return type === "staff" ? revokeStaffAccount(id) : revokeAdminAccount(id);
-  if(action === "delete") return type === "staff" ? deleteStaffAccount(id) : deleteAdminAccount(id);
-}
-
 function renderStaffAccess(){
   const body = document.getElementById("staff-access-body");
   if(!body || !session.isAdmin) return;
   const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
-  const techNames = [...TECHS];
-  accounts.forEach(account=>{ if(account?.technician && !techNames.includes(account.technician) && String(account.status || "active").toLowerCase() === "revoked") techNames.push(account.technician); });
-  body.innerHTML = techNames.length ? techNames.map(tech=>{
+  body.innerHTML = TECHS.length ? TECHS.map(tech=>{
     const account = accounts.find(item=>item.technician===tech);
-    return `<tr><td>${escapeHTML(tech)}</td><td>${account && account.email ? escapeHTML(account.email) : "—"}</td><td><span class="tag ${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "low" : "good") : "low"}">${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "Revoked" : "Active") : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` ${accessActionOptions(account,"staff")}` : ""}</td></tr>`;
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account && account.email ? escapeHTML(account.email) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
 }
 
@@ -3820,11 +3814,7 @@ function renderAdminAccess(){
   if(!body || !session.isAdmin) return;
   state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
   const accounts = state.adminAccounts || [];
-  body.innerHTML = accounts.length ? accounts.map(account=>{
-    const isCurrent = session.adminUsername === account.username;
-    const status = String(account.status || "active").toLowerCase();
-    return `<tr><td>${escapeHTML(account.email || "—")}</td><td><span class="tag ${status === "revoked" ? "low" : "good"}">${status === "revoked" ? "Revoked" : "Active"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${!isCurrent || status === "revoked" ? ` ${accessActionOptions(account,"admin")}` : ""}</td></tr>`;
-  }).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
+  body.innerHTML = accounts.length ? accounts.map(account=>`<tr><td>${escapeHTML(account.username)}</td><td><span class="tag good">Active</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openAdminNameModal('${escapeHTML(account.username)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openAdminAccountModal('${escapeHTML(account.username)}')">Edit access</button>${accounts.length>1 ? ` <button class="pill-btn small danger" onclick="deleteAdminAccount('${escapeHTML(account.username)}')">Revoke</button>` : ""}</td></tr>`).join("") : `<tr class="empty-row"><td colspan="3">No admin accounts available.</td></tr>`;
 }
 
 function openAdminNameModal(currentUsername){
@@ -3835,7 +3825,7 @@ function openAdminNameModal(currentUsername){
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminName('${escapeHTML(currentUsername)}')">Save name</button></div>`);
 }
 
-async function saveAdminName(oldUsername){
+function saveAdminName(oldUsername){
   const input = document.getElementById("admin-new-name");
   const error = document.getElementById("admin-name-error");
   const newName = input.value.trim();
@@ -3845,20 +3835,19 @@ async function saveAdminName(oldUsername){
   const account = state.adminAccounts.find(a=>a.username===oldUsername);
   if(!account){ error.textContent = "Admin account not found."; return; }
   if(newName===oldUsername){ closeOverlay(); return; }
-  try{
-    await withTimeout(db.collection("adminAccounts").doc(account.id || stableAdminDocId(account)).set({username:newName}, {merge:true}), 10000);
-    account.username = newName;
-    if(session.adminUsername===oldUsername) session.adminUsername = newName;
-    state.admin = {...(state.adminAccounts.find(a=>a.username===session.adminUsername) || state.adminAccounts[0])};
-    writeLocal();
-    closeOverlay();
-    renderAdminAccess();
-    if(session.adminUsername===newName) updateNavForRole("admin");
-    showToast("Name updated");
-  }catch(e){
-    console.error("Could not update admin name:", e);
-    error.textContent = "Could not save the admin name to the cloud.";
-  }
+  // Only touch the username field on the existing account object — password and
+  // every other field stay exactly as they were, so nothing else in the
+  // database can be corrupted by this rename.
+  account.username = newName;
+  if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+  if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
+  if(session.adminUsername===oldUsername) session.adminUsername = newName;
+  state.admin = {...(state.adminAccounts.find(a=>a.username===session.adminUsername) || state.adminAccounts[0])};
+  saveState();
+  closeOverlay();
+  renderAdminAccess();
+  if(session.adminUsername===newName) updateNavForRole("admin");
+  showToast("Name updated");
 }
 
 function openTechnicianNameModal(currentName){
@@ -3901,87 +3890,38 @@ function openAdminAccountModal(username=""){
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveAdminAccount('${editing ? escapeHTML(editing.username) : ""}')">Save profile</button></div>`);
 }
 
-async function saveAdminAccount(oldUsername){
+function saveAdminAccount(oldUsername){
   if(!session.isAdmin) return;
   const username = document.getElementById("admin-account-username").value.trim();
   const email = document.getElementById("admin-account-email").value.trim().toLowerCase();
   const error = document.getElementById("admin-account-error");
   if(!username || !email){ error.textContent = "Display name and Firebase email are required."; return; }
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ error.textContent = "Enter a valid Firebase email."; return; }
+  if(state.adminAccounts.some(account=>account.username!==oldUsername && account.username.toLowerCase()===username.toLowerCase())){ error.textContent = "That display name is already assigned."; return; }
   if(state.adminAccounts.some(account=>account.username!==oldUsername && (account.email||"").toLowerCase()===email)){ error.textContent = "That Firebase email is already assigned."; return; }
-  const account = oldUsername
-    ? state.adminAccounts.find(item=>item.username===oldUsername)
-    : {id:stableAdminDocId({email, username}), username, email, status:"active", firebaseUid:"", branchId:currentBranchId()};
-  if(!account){ error.textContent = "Admin account not found."; return; }
-  const previousEmail = account.email || "";
-  const emailChanged = oldUsername && (account.email || "").trim().toLowerCase() !== email;
-  Object.assign(account,{username,email,branchId:account.branchId || currentBranchId(), ...(emailChanged ? {firebaseUid:""} : {})});
-  if(!oldUsername) state.adminAccounts.push(account);
-  state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
+  if(oldUsername){
+    const account = state.adminAccounts.find(item=>item.username===oldUsername);
+    if(account) Object.assign(account,{username,email});
+  } else {
+    state.adminAccounts.push({id:stableAdminDocId({email, username}), username, email, branchId:currentBranchId()});
+    state.adminAccounts = normalizeAdminAccounts(state.adminAccounts);
+  }
   if(oldUsername && oldUsername!==username){
     if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
     if(!state.removedAdminUsernames.includes(oldUsername)) state.removedAdminUsernames.push(oldUsername);
   }
-  try{
-    const ref = db.collection("adminAccounts").doc(account.id || stableAdminDocId(account));
-    account.id = account.id || ref.id;
-    await withTimeout(ref.set({...account, branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
-    // If the Firebase email itself was changed in this profile, the Firebase
-    // Authentication account must also use that email. This screen only stores
-    // the mapping; it never changes Firebase Auth credentials.
-    writeLocal();
-    if(session.adminUsername===oldUsername) session.adminUsername = username;
-    state.admin = {uid:firebase.auth().currentUser?.uid || "", email:firebase.auth().currentUser?.email || previousEmail || email, username:session.adminUsername || username};
-    closeOverlay();
-    renderAdminAccess();
-    showToast(oldUsername ? "Admin access updated" : "Admin access assigned");
-  }catch(e){
-    console.error("Could not save admin access:", e);
-    error.textContent = "Could not save Admin Access to the cloud. Please try again.";
-  }
+  if(session.adminUsername===oldUsername) session.adminUsername = username;
+  state.admin = {uid:firebase.auth().currentUser?.uid || "", email:firebase.auth().currentUser?.email || email, username:session.adminUsername || username};
+  saveState(); closeOverlay(); renderAdminAccess(); showToast("Admin profile updated");
 }
 
-async function revokeAdminAccount(username){
-  if(!session.isAdmin || !confirm("Revoke this admin access?")) return;
-  const account = state.adminAccounts.find(item=>item.username===username);
-  if(!account) return;
-  if(session.adminUsername===username){
-    showToast("You cannot revoke the admin account currently in use");
-    return;
-  }
-  const activeAdminCount = (state.adminAccounts || []).filter(a=>String(a.status || "active").toLowerCase() === "active").length;
-  if(activeAdminCount <= 1){
-    showToast("You cannot revoke the last active Admin. Keep a recovery administrator available.");
-    return;
-  }
-  try{
-    const ref = db.collection("adminAccounts").doc(account.id || stableAdminDocId(account));
-    await withTimeout(ref.set({status:"revoked", branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
-    account.status = "revoked";
-    writeLocal();
-    renderAdminAccess();
-    showToast("Admin access revoked");
-  }catch(e){
-    console.error("Could not revoke admin access:", e);
-    showToast("Could not revoke Admin Access from the cloud");
-  }
-}
-
-async function restoreAdminAccount(username){
-  if(!session.isAdmin) return;
-  const account = state.adminAccounts.find(item=>item.username===username);
-  if(!account) return;
-  try{
-    const ref = db.collection("adminAccounts").doc(account.id || stableAdminDocId(account));
-    await withTimeout(ref.set({status:"active", branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
-    account.status = "active";
-    writeLocal();
-    renderAdminAccess();
-    showToast("Admin access restored");
-  }catch(e){
-    console.error("Could not restore admin access:", e);
-    showToast("Could not restore Admin Access in the cloud");
-  }
+function deleteAdminAccount(username){
+  if(!session.isAdmin || state.adminAccounts.length<=1 || !confirm("Revoke this admin access?")) return;
+  state.adminAccounts = state.adminAccounts.filter(account=>account.username!==username);
+  if(!Array.isArray(state.removedAdminUsernames)) state.removedAdminUsernames = [];
+  if(!state.removedAdminUsernames.includes(username)) state.removedAdminUsernames.push(username);
+  if(session.adminUsername===username){ logout(); return; }
+  saveState(); renderAdminAccess(); showToast("Admin access revoked");
 }
 
 function openStaffAccountModal(editId="", technician=""){
@@ -4012,10 +3952,9 @@ async function saveStaffAccount(id){
   if(duplicateTech){ error.textContent = "That technician already has an account."; return; }
   const account = id
     ? state.staffAccounts.find(item=>item.id===id)
-    : {id:uid(), technician, email, status:"active", firebaseUid:"", branchId:currentBranchId()};
+    : {id:uid(), technician, email, branchId:currentBranchId()};
   if(!account){ error.textContent = "Staff account not found."; return; }
-  const emailChanged = id && (account.email || "").trim().toLowerCase() !== email;
-  Object.assign(account, {technician, email, branchId: account.branchId || currentBranchId(), ...(emailChanged ? {firebaseUid:""} : {})});
+  Object.assign(account, {technician, email, branchId: account.branchId || currentBranchId()});
   if(!id) state.staffAccounts.push(account);
 
   // Staff Access is security-sensitive. Write the exact account directly to
@@ -4035,84 +3974,22 @@ async function saveStaffAccount(id){
   }
 }
 
-async function revokeStaffAccount(id){
+function deleteStaffAccount(id){
   if(!session.isAdmin || !confirm("Revoke this technician's access? This will also remove the technician from future Add Job assignments.")) return;
   const account = (state.staffAccounts || []).find(item=>item.id===id);
-  if(!account) return;
-  const technician = account.technician || "";
-  try{
-    await withTimeout(db.collection("staffAccounts").doc(id).set({status:"revoked", branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
-    account.status = "revoked";
-    if(technician){
-      TECHS.splice(0, TECHS.length, ...TECHS.filter(name=>name!==technician));
-      state.technicians = [...TECHS];
-      if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
-      if(!state.removedTechnicians.includes(technician)) state.removedTechnicians.push(technician);
-    }
-    writeLocal();
-    renderAll();
-    renderStaffAccess();
-    showToast(`${technician || "Staff"} access revoked`);
-  }catch(e){
-    console.error("Could not revoke staff access:", e);
-    showToast("Could not revoke Staff Access from the cloud");
-  }
-}
-
-async function restoreStaffAccount(id){
-  if(!session.isAdmin) return;
-  const account = (state.staffAccounts || []).find(item=>item.id===id);
-  if(!account) return;
-  try{
-    await withTimeout(db.collection("staffAccounts").doc(id).set({status:"active", branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
-    account.status = "active";
-    if(account.technician && !TECHS.includes(account.technician)) TECHS.push(account.technician);
+  const technician = account?.technician || "";
+  state.staffAccounts = (state.staffAccounts || []).filter(item=>item.id!==id);
+  markDeleted("staffAccounts", id);
+  if(technician){
+    TECHS.splice(0, TECHS.length, ...TECHS.filter(name=>name!==technician));
     state.technicians = [...TECHS];
-    state.removedTechnicians = (state.removedTechnicians || []).filter(name=>name!==account.technician);
-    writeLocal();
-    renderAll();
-    renderStaffAccess();
-    showToast(`${account.technician || "Staff"} access restored`);
-  }catch(e){
-    console.error("Could not restore staff access:", e);
-    showToast("Could not restore Staff Access in the cloud");
+    if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
+    if(!state.removedTechnicians.includes(technician)) state.removedTechnicians.push(technician);
   }
-}
-
-async function deleteAdminAccount(username){
-  if(!session.isAdmin) return;
-  const account = state.adminAccounts.find(item=>item.username===username);
-  if(!account) return;
-  if(session.adminUsername===username){ showToast("You cannot delete the admin account currently in use"); return; }
-  const activeAdminCount = (state.adminAccounts || []).filter(a=>String(a.status || "active").toLowerCase() === "active").length;
-  if(String(account.status || "active").toLowerCase() === "active" && activeAdminCount <= 1){
-    showToast("You cannot delete the last active Admin. Keep a recovery administrator available.");
-    return;
-  }
-  if(!confirm(`Delete Admin Access for ${account.email || username}? This removes the GIDS access record.`)) return;
-  try{
-    await withTimeout(db.collection("adminAccounts").doc(account.id || stableAdminDocId(account)).delete(), 10000);
-    state.adminAccounts = state.adminAccounts.filter(item=>item.username!==username);
-    writeLocal(); renderAdminAccess(); showToast("Admin access deleted");
-  }catch(e){ console.error("Could not delete admin access:",e); showToast("Could not delete Admin Access from the cloud"); }
-}
-
-async function deleteStaffAccount(id){
-  if(!session.isAdmin) return;
-  const account = (state.staffAccounts || []).find(item=>item.id===id);
-  if(!account) return;
-  if(!confirm(`Delete Staff Access for ${account.email || account.technician || "this account"}? This removes the GIDS access record.`)) return;
-  try{
-    await withTimeout(db.collection("staffAccounts").doc(id).delete(), 10000);
-    state.staffAccounts = state.staffAccounts.filter(item=>item.id!==id);
-    if(account.technician){
-      TECHS.splice(0, TECHS.length, ...TECHS.filter(name=>name!==account.technician));
-      state.technicians = [...TECHS];
-      if(!Array.isArray(state.removedTechnicians)) state.removedTechnicians = [];
-      if(!state.removedTechnicians.includes(account.technician)) state.removedTechnicians.push(account.technician);
-    }
-    writeLocal(); renderAll(); renderStaffAccess(); showToast("Staff access deleted");
-  }catch(e){ console.error("Could not delete staff access:",e); showToast("Could not delete Staff Access from the cloud"); }
+  saveState();
+  renderAll();
+  renderStaffAccess();
+  showToast(technician ? `${technician} access revoked and removed from future assignments` : "Staff access revoked");
 }
 
 function attendanceReportWindow(period){
