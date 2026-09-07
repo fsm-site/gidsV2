@@ -3787,7 +3787,6 @@ function hideLogoutLoading(){
 }
 
 async function logout(){
-  const logoutStartedAt = Date.now();
   showLogoutLoading();
   document.querySelectorAll('button[onclick="logout()"]').forEach(btn=>btn.disabled=true);
   session.isAdmin = false;
@@ -3803,18 +3802,11 @@ async function logout(){
   clearBrowserSession();
   stopRealtimeSync();
   updateNavForRole(null);
-  try{
-    await withTimeout(firebase.auth().signOut(), 8000);
-  }catch(e){
-    console.error("Firebase sign-out failed:", e);
-  }finally{
-    const minVisibleMs = 1200;
-    const remainingMs = Math.max(0, minVisibleMs - (Date.now() - logoutStartedAt));
-    setTimeout(()=>{
-      switchView("role-select");
-      hideLogoutLoading();
-    }, remainingMs);
-  }
+  // Clear the local session immediately. Firebase sign-out continues in the
+  // background so a slow network cannot trap the user behind the overlay.
+  switchView("role-select");
+  hideLogoutLoading();
+  firebase.auth().signOut().catch(e=>console.error("Firebase sign-out failed:", e));
 }
 
 function openChangePasswordModal(){
