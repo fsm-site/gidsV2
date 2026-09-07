@@ -1361,7 +1361,7 @@
               <div><h3>Staff access</h3><div class="desc">Assign unique login credentials or revoke access for technicians.</div></div>
               <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
             </div>
-            <table><thead><tr><th>Technician</th><th>Username</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
+            <table><thead><tr><th>Technician</th><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
           </div>
           <div class="panel">
             <div class="panel-head">
@@ -3805,7 +3805,7 @@ function renderStaffAccess(){
   const accounts = Array.isArray(state.staffAccounts) ? state.staffAccounts : [];
   body.innerHTML = TECHS.length ? TECHS.map(tech=>{
     const account = accounts.find(item=>item.technician===tech);
-    return `<tr><td>${escapeHTML(tech)}</td><td>${account ? escapeHTML(account.username) : "—"}${account && account.email ? `<div class="sub" style="margin-top:3px">${escapeHTML(account.email)}</div>` : ""}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account && account.email ? escapeHTML(account.email) : "—"}</td><td><span class="tag ${account ? "good" : "low"}">${account ? "Active" : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` <button class="pill-btn small danger" onclick="deleteStaffAccount('${account.id}')">Revoke</button>` : ""}</td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
 }
 
@@ -3931,39 +3931,47 @@ function openStaffAccountModal(editId="", technician=""){
   const options = TECHS.map(tech=>`<option value="${escapeHTML(tech)}" ${tech===selectedTech ? "selected" : ""}>${escapeHTML(tech)}</option>`).join("");
   openOverlay(`
     <h3>${editing ? "Edit staff access" : "Assign staff access"}</h3>
-    <div class="sub">Each technician must have a unique username and password.</div>
+    <div class="sub">Link this technician to the Firebase email used for Staff Login. Passwords are managed only by Firebase Authentication.</div>
     <div class="field"><label>Technician</label><select id="staff-account-tech">${options}</select></div>
-    <div class="field"><label>Username</label><input id="staff-account-username" autocomplete="off" value="${editing ? escapeHTML(editing.username) : ""}" placeholder="Display username"></div>
     <div class="field"><label>Firebase email</label><input id="staff-account-email" type="email" autocomplete="off" value="${editing ? escapeHTML(editing.email || "") : ""}" placeholder="Staff Firebase email"></div>
-    <div class="field"><label>Password</label><input id="staff-account-password" type="password" autocomplete="new-password" value="" placeholder="Do not store here; create in Firebase"></div>
     <div class="login-error" id="staff-account-error"></div>
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Cancel</button><button class="pill-btn primary" onclick="saveStaffAccount('${editId}')">Save access</button></div>
   `);
 }
 
-function saveStaffAccount(id){
+async function saveStaffAccount(id){
   if(!session.isAdmin) return;
   const technician = document.getElementById("staff-account-tech").value;
-  const username = document.getElementById("staff-account-username").value.trim();
   const email = document.getElementById("staff-account-email").value.trim().toLowerCase();
   const error = document.getElementById("staff-account-error");
-  if(!technician || !username || !email){ error.textContent = "Technician, username, and Firebase email are required."; return; }
-  const duplicateUsername = state.staffAccounts.some(item=>item.id!==id && item.username.toLowerCase()===username.toLowerCase());
+  if(!technician || !email){ error.textContent = "Technician and Firebase email are required."; return; }
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ error.textContent = "Enter a valid Firebase email."; return; }
   const duplicateEmail = state.staffAccounts.some(item=>item.id!==id && (item.email || "").toLowerCase()===email);
   const duplicateTech = state.staffAccounts.some(item=>item.id!==id && item.technician===technician);
-  if(duplicateUsername){ error.textContent = "That username is already assigned."; return; }
   if(duplicateEmail){ error.textContent = "That Firebase email is already assigned."; return; }
   if(duplicateTech){ error.textContent = "That technician already has an account."; return; }
-  if(id){
-    const account = state.staffAccounts.find(item=>item.id===id);
-    if(account) Object.assign(account, {technician, username, email, branchId: account.branchId || currentBranchId()});
-  }else{
-    state.staffAccounts.push({id:uid(), technician, username, email, branchId:currentBranchId()});
+  const account = id
+    ? state.staffAccounts.find(item=>item.id===id)
+    : {id:uid(), technician, email, branchId:currentBranchId()};
+  if(!account){ error.textContent = "Staff account not found."; return; }
+  Object.assign(account, {technician, email, branchId: account.branchId || currentBranchId()});
+  if(!id) state.staffAccounts.push(account);
+
+  // Staff Access is security-sensitive. Write the exact account directly to
+  // Firestore instead of routing through the broad saveState() reconciliation.
+  // This prevents a stale realtime/local snapshot from immediately overwriting
+  // the Firebase email after Admin saves it.
+  try{
+    const ref = db.collection("staffAccounts").doc(account.id);
+    await withTimeout(ref.set({...account, branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
+    writeLocal();
+    renderStaffAccess();
+    closeOverlay();
+    showToast(id ? "Staff access updated" : "Staff access assigned");
+  }catch(e){
+    console.error("Could not save staff access:", e);
+    error.textContent = "Could not save Staff Access to the cloud. Please try again.";
   }
-  saveState();
-  closeOverlay();
-  renderStaffAccess();
-  showToast(id ? "Staff access updated" : "Staff access assigned");
 }
 
 function deleteStaffAccount(id){
