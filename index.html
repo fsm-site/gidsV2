@@ -234,7 +234,14 @@
   .overlay{ position:fixed; inset:0; background:rgba(12,30,56,.48); display:none; align-items:center; justify-content:center; z-index:50; padding:16px; box-sizing:border-box; backdrop-filter:blur(12px) saturate(125%); overflow:hidden; overscroll-behavior:contain; }
   .overlay.active{ display:flex; }
   .modal{ background:linear-gradient(145deg,rgba(18,42,67,.98),rgba(6,18,34,.98)); border:1px solid var(--line-strong); border-radius:18px; width:min(420px,100%); max-width:420px; max-height:calc(100dvh - 32px); overflow-y:auto; overscroll-behavior:contain; padding:22px 24px 18px; box-sizing:border-box; box-shadow:0 24px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); backdrop-filter:blur(24px) saturate(145%); }
-  .modal.job-modal{ background:linear-gradient(145deg,rgba(18,42,67,.98),rgba(6,18,34,.98)); border-color:var(--line-strong); box-shadow:0 24px 70px rgba(0,0,0,.5), inset 0 1px 0 rgba(255,255,255,.08); }
+  .modal.job-modal{ background:linear-gradient(145deg,#ffffff,#f2f7fc); color:#14213d; border-color:#b8d3eb; box-shadow:0 24px 70px rgba(17,48,82,.28), inset 0 1px 0 rgba(255,255,255,.9); }
+  .modal.job-modal h3{ color:#14213d; }
+  .modal.job-modal .sub{ color:#5f7690; }
+  .modal.job-modal .field label{ --text:#14213d; --muted:#6d849d; color:#14213d; }
+  .modal.job-modal .field input,.modal.job-modal .field select,.modal.job-modal .field textarea{ background:#eef4f9; color:#14213d; border-color:#b8cde0; }
+  .modal.job-modal .field input::placeholder,.modal.job-modal .field textarea::placeholder{ color:#8ba0b5; }
+  .modal.job-modal .job-modal-scroll{ background:transparent; }
+  .modal.job-modal .modal-actions{ background:linear-gradient(180deg,rgba(255,255,255,.18),#eef4f9 42%); border-top-color:#c8d9e8; }
   .modal h3{ font-size:17px; margin-bottom:2px; color:#eef7ff; }
 .modal .sub{ color:#a9c4dc; font-size:12px; margin-bottom:18px; }
 .modal .field label{ --text:#e7f3ff; --muted:#a9c4dc; }
@@ -1472,18 +1479,38 @@ function getToday(){
 }
 function todayStr(d=getToday()){ return d.toISOString().slice(0,10); }
 function monthStr(d=getToday()){ return d.toISOString().slice(0,7); }
+function parseSiteDate(value){
+  if(value instanceof Date) return value;
+  const raw = String(value ?? "").trim();
+  if(!raw) return null;
+  if(/^\d{4}-\d{2}-\d{2}$/.test(raw)){
+    const [y,m,d] = raw.split("-").map(Number);
+    const dt = new Date(y,m-1,d);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  const dt = new Date(raw);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+}
+function formatSiteDate(value){
+  const d = parseSiteDate(value);
+  return d ? d.toLocaleDateString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric"}) : (value || "—");
+}
+function formatSiteDateTime(value){
+  const d = parseSiteDate(value);
+  return d ? d.toLocaleString(undefined,{weekday:"long",month:"short",day:"numeric",year:"numeric",hour:"numeric",minute:"2-digit"}) : (value || "—");
+}
 function peso(n){ return "₱" + Number(n||0).toLocaleString(undefined,{maximumFractionDigits:0}); }
 function encodedStamp(t){
   const d = t?.ts ? new Date(Number(t.ts)) : null;
   if(!d || Number.isNaN(d.getTime())) return t?.date || "—";
-  return d.toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  return formatSiteDateTime(d);
 }
 function warrantyExpiryDate(t){
   const raw = String(t?.date || todayStr());
   const parts = raw.split("-").map(Number);
   const d = parts.length===3 && parts.every(Number.isFinite) ? new Date(parts[0],parts[1]-1,parts[2]) : new Date();
   d.setDate(d.getDate()+7);
-  return d.toLocaleDateString(undefined,{month:"short",day:"numeric",year:"numeric"});
+  return formatSiteDate(d);
 }
 function collectedAmount(t){
   if(t.invoiceStatus === "Unpaid") return 0;
@@ -1723,7 +1750,7 @@ function subscriptionDaysLeft(){
 }
 function formatLicenseDate(value){
   const d = subscriptionDateValue(value);
-  return d ? d.toLocaleDateString(undefined,{year:"numeric",month:"short",day:"numeric"}) : "—";
+  return d ? formatSiteDate(d) : "—";
 }
 function showLicenseAlert(){
   if(!session.isAdmin || !subscription || !subscription.expiresAt || licenseAlertDismissed) return;
@@ -2965,7 +2992,7 @@ function startRealtimeSync(){
 
 /* ======================= INIT ======================= */
 async function init(){
-  document.getElementById("today-label").textContent = getToday().toLocaleDateString(undefined,{weekday:'short', year:'numeric', month:'short', day:'numeric'});
+  document.getElementById("today-label").textContent = formatSiteDate(getToday());
   const splashImage = document.querySelector("#app-splash img");
   const heroWatermark = document.getElementById("hero-intro-watermark");
   if(splashImage){
@@ -3173,7 +3200,7 @@ function switchView(key){
   if(key==="employee"){
     document.getElementById("view-employee").classList.add("active");
     titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
-    subEl.innerHTML = `Dashboard · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
+    subEl.innerHTML = `Dashboard · Updated ${formatSiteDate(getToday())}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
       `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
       `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
@@ -3181,7 +3208,7 @@ function switchView(key){
   } else if(key==="inventory-public"){
     document.getElementById("view-inventory-public").classList.add("active");
     titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
-    subEl.innerHTML = `Inventory · Updated ${getToday().toLocaleDateString(undefined,{year:'numeric', month:'short', day:'numeric'})}`;
+    subEl.innerHTML = `Inventory · Updated ${formatSiteDate(getToday())}`;
     rightEl.innerHTML = `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
   } else if(key==="customer-status"){
     document.getElementById("view-customer-status").classList.add("active");
@@ -3956,16 +3983,7 @@ function formatAttendanceTime(value){
   if(!value) return "—";
   return new Date(value).toLocaleTimeString(undefined,{hour:"numeric",minute:"2-digit"});
 }
-function formatAttendanceDate(value){
-  if(!value) return "—";
-  const parts = String(value).split("-").map(Number);
-  if(parts.length===3 && parts.every(Number.isFinite)){
-    const d = new Date(parts[0], parts[1]-1, parts[2]);
-    return d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
-  }
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? String(value) : d.toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
-}
+function formatAttendanceDate(value){ return formatSiteDate(value); }
 
 function attendanceDateTimeValue(value){
   if(!value) return "";
@@ -4001,7 +4019,7 @@ function renderAttendance(){
   if(!session.isAdmin && staffTech && visibleAttendanceTechs.includes(staffTech)) select.value = staffTech;
   else if(visibleAttendanceTechs.includes(current)) select.value = current;
   else if(visibleAttendanceTechs.length) select.value = visibleAttendanceTechs[0];
-  dateLabel.textContent = getToday().toLocaleDateString(undefined,{weekday:"short",month:"short",day:"numeric",year:"numeric"});
+  dateLabel.textContent = formatSiteDate(getToday());
   const selectedRecord = attendanceForToday().find(record=>record.tech===select.value);
   status.className = `attendance-status${selectedRecord && selectedRecord.checkIn && !selectedRecord.checkOut ? " present" : ""}`;
   status.innerHTML = selectedRecord && selectedRecord.checkIn && !selectedRecord.checkOut
@@ -4336,7 +4354,7 @@ function saveCommissionRate(tech, value){
 function renderEmployeeDashboard(){
   const today = todayStr();
   document.getElementById("hero-branch").textContent = ui.branch;
-  document.getElementById("hero-date").textContent = getToday().toLocaleDateString(undefined,{month:'short', day:'numeric', year:'numeric'});
+  document.getElementById("hero-date").textContent = formatSiteDate(getToday());
   const rows = state.transactions.filter(t=> t.branch===ui.branch && t.date===today).sort((a,b)=>b.ts-a.ts);
   document.getElementById("stat-clients").textContent = rows.length;
   document.getElementById("stat-clients-branch").textContent = ui.branch + " branch";
@@ -4475,7 +4493,7 @@ function renderAnalytics(monthly){
     customDate.value = ui.trendDate || todayStr();
   }
   trend.innerHTML = days.map((day,index)=>`
-    <div class="bar-row"><span>${new Date(day+"T00:00:00").toLocaleDateString(undefined,{month:"short",day:"numeric"})}</span>
+    <div class="bar-row"><span>${formatSiteDate(day)}</span>
     <div class="bar-track"><div class="bar-fill" style="width:${Math.round(totals[index]/max*100)}%"></div></div>
     <b style="text-align:right">${peso(totals[index])}</b></div>`).join("");
 }
@@ -4549,7 +4567,7 @@ function renderAppointments(){
   if(!body) return;
   const rows=state.transactions.filter(t=>t.branch===ui.adminBranch && t.appointmentAt).sort((a,b)=>String(a.appointmentAt).localeCompare(String(b.appointmentAt)));
   body.innerHTML=rows.length ? rows.map(t=>`<tr>
-    <td>${escapeHTML(new Date(t.appointmentAt).toLocaleString(undefined,{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}))}</td>
+    <td>${escapeHTML(formatSiteDateTime(t.appointmentAt))}</td>
     <td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.customerPhone||"—")}</td>
     <td>${escapeHTML(serviceNoOf(t))}</td>
     <td><select class="status-select" onchange="updateJobStatus('${t.id}',this.value)">${JOB_STATUSES.map(s=>`<option ${s===(normalizeJobStatus(t.jobStatus))?"selected":""}>${s}</option>`).join("")}</select></td>
@@ -4639,7 +4657,7 @@ function renderCustomerHistory(query=""){
   });
   const rows=Object.values(groups).sort((a,b)=>String(b.jobs[b.jobs.length-1].date).localeCompare(String(a.jobs[a.jobs.length-1].date)));
   body.innerHTML=rows.length ? rows.map(g=>{ const last=g.jobs.slice().sort((a,b)=>String(b.date).localeCompare(String(a.date)))[0]; return `<tr>
-    <td>${escapeHTML(g.name)}</td><td>${escapeHTML(g.phone||"—")}</td><td>${g.jobs.length}</td><td>${escapeHTML(last.date)}</td><td class="fee">${peso(g.total)}</td>
+    <td>${escapeHTML(g.name)}</td><td>${escapeHTML(g.phone||"—")}</td><td>${g.jobs.length}</td><td>${escapeHTML(formatSiteDate(last.date))}</td><td class="fee">${peso(g.total)}</td>
     <td style="text-align:right"><button class="pill-btn small ghost" onclick="openCustomerHistory('${g.jobs[0].id}')">View</button></td></tr>`; }).join("") :
     `<tr class="empty-row"><td colspan="6">${q?"No customers match this search.":"No customer history yet."}</td></tr>`;
 }
@@ -4647,13 +4665,13 @@ function openCustomerHistory(id){
   const seed=state.transactions.find(t=>t.id===id); if(!seed) return;
   const jobs=state.transactions.filter(t=>(t.customerName||"Walk-in customer")=== (seed.customerName||"Walk-in customer") && (t.customerPhone||"") === (seed.customerPhone||""));
   openOverlay(`<h3>${escapeHTML(seed.customerName||"Walk-in customer")}</h3><div class="sub">${escapeHTML(seed.customerPhone||"No phone on file")} · ${jobs.length} job${jobs.length===1?"":"s"}</div>
-    <div class="muted-box">${jobs.map(t=>`${escapeHTML(t.date)} · ${escapeHTML(serviceLabel(t))} · Paid ${peso(collectedAmount(t))} · Balance ${peso(balanceAmount(t))} · ${escapeHTML(normalizeJobStatus(t.jobStatus))}`).join("<br>")}</div>
+    <div class="muted-box">${jobs.map(t=>`${escapeHTML(formatSiteDate(t.date))} · ${escapeHTML(serviceLabel(t))} · Paid ${peso(collectedAmount(t))} · Balance ${peso(balanceAmount(t))} · ${escapeHTML(normalizeJobStatus(t.jobStatus))}`).join("<br>")}</div>
     <div class="modal-actions"><button class="pill-btn ghost" onclick="closeOverlay()">Close</button><button class="pill-btn primary" onclick="openReceiptModal('${seed.id}')">Open latest receipt</button></div>`);
 }
 function renderInvoices(){
   const body=document.getElementById("invoices-body"); if(!body) return;
   const rows=state.transactions.filter(t=>t.branch===ui.adminBranch).sort((a,b)=>b.ts-a.ts).slice(0,50);
-  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(t.date)}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span>${balanceAmount(t)>0?`<div class="stat-sub" style="margin-top:4px;">Balance: ${peso(balanceAmount(t))}</div>`:""}</td><td class="fee" style="text-align:right">${peso(collectedAmount(t))} / ${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button>${balanceAmount(t)>0?` <button class="pill-btn small primary" onclick="collectBalance('${t.id}')">Collect</button>`:""}</td></tr>`).join("") :
+  body.innerHTML=rows.length ? rows.map(t=>`<tr><td>${escapeHTML("INV-"+receiptNoOf(t).replace(/^RCPT-/,""))}</td><td>${escapeHTML(t.customerName||"Walk-in")}</td><td>${escapeHTML(formatSiteDate(t.date))}</td><td><span class="tag ${t.invoiceStatus==="Paid"?"good":"low"}">${escapeHTML(t.invoiceStatus||"Paid")}</span>${balanceAmount(t)>0?`<div class="stat-sub" style="margin-top:4px;">Balance: ${peso(balanceAmount(t))}</div>`:""}</td><td class="fee" style="text-align:right">${peso(collectedAmount(t))} / ${peso(t.fee)}</td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openReceiptModal('${t.id}')">View</button>${balanceAmount(t)>0?` <button class="pill-btn small primary" onclick="collectBalance('${t.id}')">Collect</button>`:""}</td></tr>`).join("") :
     `<tr class="empty-row"><td colspan="6">No invoices yet.</td></tr>`;
 }
 
@@ -4789,6 +4807,11 @@ function closeOverlay(){
 }
 document.getElementById("overlay").addEventListener("click", (e)=>{ if(e.target.id==="overlay") closeOverlay(); });
 
+function updateJobDateDisplay(value){
+  const el = document.getElementById("f-date-display");
+  if(el) el.textContent = formatSiteDate(value);
+}
+
 function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   // Dashboard Add Job is shared by Admin and Staff. Infer the active role so
   // an Admin opening Add Job from the main dashboard uses Admin cloud writes.
@@ -4814,7 +4837,7 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
     <h3>${editing? "Edit job" : "Add job"}</h3>
     <div class="sub">${editing? "Update the details of this logged job." : "Log a repair, service or sale."}</div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-      <div class="field"><label>Date <span style="font-weight:400;color:var(--muted)">auto-filled</span></label><input id="f-date" type="date" value="${dateValue}"></div>
+      <div class="field"><label>Date <span style="font-weight:400;color:var(--muted)">auto-filled</span></label><input id="f-date" type="date" value="${dateValue}" onchange="updateJobDateDisplay(this.value)"><div id="f-date-display" style="margin-top:6px;font-size:12px;font-weight:700;color:var(--blue-light);">${escapeHTML(formatSiteDate(dateValue))}</div></div>
       <div class="field"><label>Service No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div id="service-no-preview" style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${serviceNoDisplay}</div></div>
     </div>
     <div class="field"><label>Receipt No. <span style="font-weight:400;color:var(--muted)">auto</span></label><div id="receipt-no-preview" style="padding:10px 12px;border:1px solid var(--line-strong);border-radius:8px;background:var(--panel-2);font-weight:700;font-size:13.5px;">${receiptNoDisplay}</div></div>
@@ -5321,7 +5344,7 @@ function openReceiptModal(id){
       <div class="receipt-meta">
         <div>Service No: <b>${escapeHTML(serviceNoOf(t))}</b></div>
         <div>Receipt No: <b>${escapeHTML(receiptNoOf(t))}</b></div>
-        <div>Date: <b>${escapeHTML(t.date)}</b></div>
+        <div>Date: <b>${escapeHTML(formatSiteDate(t.date))}</b></div>
         <div>Customer: <b>${escapeHTML(t.customerName || "Walk-in customer")}</b></div>
         <div>Tech: <b>${escapeHTML(t.tech)}</b></div>
         <div>Status: <b>${escapeHTML(t.jobStatus || "New")}</b></div>
@@ -5357,7 +5380,7 @@ function openReceiptModal(id){
 }
 
 function receiptText(t){
-  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${t.date}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${normalizeJobStatus(t.jobStatus)}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nCustomer Tracking No: ${repairStatusTokenOf(t)}\nCustomer Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}\nTerms & Conditions apply.`;
+  return `${BIZ_NAME}\n${BIZ_LOCATION}\nService: ${serviceNoOf(t)}\nReceipt: ${receiptNoOf(t)}\nDate: ${formatSiteDate(t.date)}\nCustomer: ${t.customerName||"Walk-in customer"}\nStatus: ${normalizeJobStatus(t.jobStatus)}\nDescription: ${t.description||serviceLabel(t)}\nTotal: ${peso(t.fee)}\nAmount Paid: ${peso(collectedAmount(t))}\nBalance: ${peso(balanceAmount(t))}\nPayment: ${t.paymentMode||"—"}\nWarranty: 7 days\nWarranty expires: ${warrantyExpiryDate(t)}\nCustomer Tracking No: ${repairStatusTokenOf(t)}\nCustomer Tracker: ${CUSTOMER_STATUS_BASE_URL.replace(/^https?:\/\//, "").replace(/\/$/, "")}\nTerms & Conditions apply.`;
 }
 async function copyReceipt(id){
   const t=state.transactions.find(x=>x.id===id); if(!t) return;
@@ -5383,9 +5406,9 @@ function lookupRepair(){
   if(!t){ result.innerHTML=`<div class="muted-box">No repair matched “${escapeHTML(query)}”. Check the number and try again.</div>`; return; }
   const status=normalizeJobStatus(t.jobStatus);
   result.innerHTML=`<div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:start;">
-    <div><div class="stat-label">${escapeHTML(serviceNoOf(t))}</div><h3 style="margin-top:5px;">${escapeHTML(t.description||serviceLabel(t))}</h3><div class="stat-sub">${escapeHTML(t.customerName||"Customer")} · ${escapeHTML(t.date)}</div></div>
+    <div><div class="stat-label">${escapeHTML(serviceNoOf(t))}</div><h3 style="margin-top:5px;">${escapeHTML(t.description||serviceLabel(t))}</h3><div class="stat-sub">${escapeHTML(t.customerName||"Customer")} · ${escapeHTML(formatSiteDate(t.date))}</div></div>
     <span class="tag ${normalizeJobStatus(status)==="Claimed"?"good":"low"}">${escapeHTML(status)}</span></div>
-    <div class="muted-box" style="margin-top:14px;">${t.appointmentAt?`Appointment: <b>${escapeHTML(new Date(t.appointmentAt).toLocaleString())}</b><br>`:""}Receipt <b>${escapeHTML(receiptNoOf(t))}</b> · Total <b>${peso(t.fee)}</b> · Paid <b>${peso(collectedAmount(t))}</b> · Balance <b>${peso(balanceAmount(t))}</b></div>
+    <div class="muted-box" style="margin-top:14px;">${t.appointmentAt?`Appointment: <b>${escapeHTML(formatSiteDateTime(t.appointmentAt))}</b><br>`:""}Receipt <b>${escapeHTML(receiptNoOf(t))}</b> · Total <b>${peso(t.fee)}</b> · Paid <b>${peso(collectedAmount(t))}</b> · Balance <b>${peso(balanceAmount(t))}</b></div>
     <div class="portal-actions"><button class="pill-btn primary" onclick="openReceiptModal('${t.id}')">Digital receipt</button><button class="pill-btn ghost" onclick="copyReceipt('${t.id}')">Copy</button><button class="pill-btn ghost" onclick="shareReceipt('${t.id}')">Share</button></div>`;
 }
 
@@ -5438,7 +5461,7 @@ function downloadReceiptPdf(id){
   [
     `Service No: ${serviceNoOf(t)}`,
     `Receipt No: ${receiptNoOf(t)}`,
-    `Date: ${t.date}`,
+    `Date: ${formatSiteDate(t.date)}`,
     `Branch: ${t.branch}`,
     `Customer: ${t.customerName || "Walk-in customer"}`,
     `Tech: ${t.tech}`,
@@ -5640,7 +5663,7 @@ function buildReportData(){
     available: Number(i.quantity)-Number(i.used||0)
   }));
 
-  const rangeLabel = (from||to) ? `${from||"start"} to ${to||"today"}` : "all dates";
+  const rangeLabel = (from||to) ? `${from ? formatSiteDate(from) : "start"} to ${to ? formatSiteDate(to) : formatSiteDate(getToday())}` : "all dates";
   const branchLabel = branch==="__all__" ? "All active branches" : branch;
   const attendance = attendanceReportRows(ui.attendancePeriod);
 
@@ -5683,7 +5706,7 @@ function downloadExcelReport(){
   summary.addRow(["GIDS AYPHONE TECH — REPORT"]);
   summary.addRow(["Branch(es)", data.branchLabel]);
   summary.addRow(["Date range", data.rangeLabel]);
-  summary.addRow(["Generated", todayStr(getToday())]);
+  summary.addRow(["Generated", formatSiteDate(getToday())]);
   summary.addRow(["Gross sales (₱)", data.gross]);
   summary.addRow(["Cost of parts used (₱)", data.cogs]);
   summary.addRow(["Profit (₱)", data.net]);
@@ -5703,7 +5726,7 @@ function downloadExcelReport(){
   addSheet("Jobs",
     ["Service No","Receipt No","Date","Branch","Tech","Service type","Name of labor","Phone brand","Phone model","Item used","Job status","Appointment","Customer","Description","Quantity","Amount (₱)","Mode of payment","Total Amount / Fee (₱)","Amount Paid (₱)","Balance (₱)"],
     data.jobs.map(t=>[
-      serviceNoOf(t), receiptNoOf(t), t.date, t.branch, t.tech, t.serviceType||"", t.laborName||"",
+      serviceNoOf(t), receiptNoOf(t), formatSiteDate(t.date), t.branch, t.tech, t.serviceType||"", t.laborName||"",
       t.phoneBrand||"", t.phoneModel||"", itemNameById(t.itemUsed), normalizeJobStatus(t.jobStatus), t.appointmentAt||"",
       t.customerName||"", t.description||"", Number(t.quantity||1), Number(t.amount!=null?t.amount:t.fee),
       t.paymentMode||"", Number(t.fee||0), collectedAmount(t), balanceAmount(t)
@@ -5744,7 +5767,7 @@ function downloadPdfReport(){
   doc.text(BIZ_NAME + " — Report", reportLogo ? 108 : 40, 40);
   doc.setFont("helvetica","normal");
   doc.setFontSize(10);
-  doc.text(`Branch: ${data.branchLabel}    Date range: ${data.rangeLabel}    Generated: ${todayStr(getToday())}`, 40, 70);
+  doc.text(`Branch: ${data.branchLabel}    Date range: ${data.rangeLabel}    Generated: ${formatSiteDate(getToday())}`, 40, 70);
 
   doc.autoTable({
     startY: 86,
@@ -5758,7 +5781,7 @@ function downloadPdfReport(){
     startY: doc.lastAutoTable.finalY + 28,
     head: [["Date","Receipt No","Branch","Tech","Service type","Phone","Item used","Payment","Paid / fee"]],
     body: data.jobs.map(t=>[
-      t.date, receiptNoOf(t), t.branch, t.tech, serviceLabel(t),
+      formatSiteDate(t.date), receiptNoOf(t), t.branch, t.tech, serviceLabel(t),
       [t.phoneBrand,t.phoneModel].filter(Boolean).join(" ") || "—",
       itemNameById(t.itemUsed), t.paymentMode||"—", peso(collectedAmount(t))
     ]),
