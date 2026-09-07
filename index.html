@@ -817,7 +817,7 @@
 <div class="global-actions" id="global-actions" aria-label="Application actions">
   <button class="pill-btn ghost" type="button" onclick="hardRefreshApp()" title="Reload the app">Refresh</button>
   <button class="pill-btn ghost" type="button" onclick="openCalculatorModal()">Calculator</button>
-  <button class="pill-btn danger" type="button" onclick="logout()">Log out</button>
+  <button class="pill-btn danger" id="global-logout" type="button" data-logout-action>Log out</button>
 </div>
 
 <div class="shell login-mode">
@@ -3313,6 +3313,14 @@ function hardRefreshApp(){
   window.location.reload();
 }
 
+let logoutInProgress = false;
+document.addEventListener("click", event=>{
+  const button = event.target.closest("[data-logout-action]");
+  if(!button || logoutInProgress) return;
+  event.preventDefault();
+  logout();
+});
+
 function ensureSharedTopbarActions(key, rightEl){
   if(!rightEl || ["role-select", "admin-login", "staff-gate", "developer-login"].includes(key)) return;
   if(!document.getElementById("refresh-app-btn")){
@@ -3322,7 +3330,7 @@ function ensureSharedTopbarActions(key, rightEl){
     rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn ghost" data-shared-calculator type="button" onclick="openCalculatorModal()">Calculator</button>`);
   }
   if(!rightEl.querySelector('[data-shared-logout], [onclick*="logout"]')){
-    rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn danger" data-shared-logout type="button" onclick="logout()">Log out</button>`);
+    rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn danger" data-shared-logout data-logout-action type="button">Log out</button>`);
   }
 }
 
@@ -3817,6 +3825,8 @@ function hideLogoutLoading(){
 }
 
 async function logout(){
+  if(logoutInProgress) return;
+  logoutInProgress = true;
   document.querySelectorAll('button[onclick="logout()"]').forEach(btn=>btn.disabled=true);
   session.isAdmin = false;
   session.isDeveloper = false;
@@ -3835,6 +3845,7 @@ async function logout(){
   // background so a slow network cannot delay the login screen.
   switchView("role-select");
   firebase.auth().signOut().catch(e=>console.error("Firebase sign-out failed:", e));
+  setTimeout(()=>{ logoutInProgress = false; }, 500);
 }
 
 function openChangePasswordModal(){
