@@ -718,6 +718,10 @@
 .license-alert.urgent{border-color:rgba(255,80,80,.6);background:rgba(48,15,15,.97)}
 .license-lock{min-height:calc(100vh - 105px);min-height:calc(100svh - 105px);display:flex;align-items:center;justify-content:center;padding:40px 28px 70px;box-sizing:border-box}
 .license-lock-card{max-width:720px;width:100%;padding:24px 30px;text-align:center;background:transparent;border:0;box-shadow:none}
+/* Subscription-expired content stays centered in the available workspace, including desktop and mobile layouts. */
+.view#view-license-suspended.active{display:flex;align-items:center;justify-content:center;min-height:calc(100vh - 120px);min-height:calc(100svh - 120px);width:100%;box-sizing:border-box;}
+.view#view-license-suspended.active .license-lock{width:100%;min-height:0;padding:40px 28px 70px;display:flex;align-items:center;justify-content:center;box-sizing:border-box;}
+.view#view-license-suspended.active .license-lock-card{margin:0 auto;}
 .license-lock-card .lock-icon{font-size:52px;margin-bottom:14px}
 .license-lock-card h2{margin:0 0 10px;font-size:clamp(30px,4vw,48px)}
 .license-lock-card p{line-height:1.7;opacity:.8;font-size:clamp(14px,1.6vw,18px);margin:0 auto 20px}
