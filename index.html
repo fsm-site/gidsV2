@@ -3172,7 +3172,7 @@ function switchView(key){
 
   if(key==="license-suspended"){
     document.getElementById("view-license-suspended").classList.add("active");
-    titleEl.innerHTML = `ACCESS <span class="hi">SUSPENDED</span>`;
+    titleEl.innerHTML = `SUBSCRIPTION <span class="hi">EXPIRED</span>`;
     subEl.innerHTML = "Your access period has ended";
     rightEl.innerHTML = `<button class="pill-btn danger" type="button" onclick="logout()">Sign out</button>`;
     return;
@@ -3366,7 +3366,7 @@ async function attemptLogin(){
     await loadSubscription();
     if(!subscriptionIsActive()){
       applySubscriptionAccess();
-      err.textContent = "Access is currently suspended. Please contact the system administrator.";
+      err.textContent = "Subscription expired. Please contact the administrator to renew access.";
       return;
     }
 
@@ -3478,7 +3478,7 @@ async function attemptStaffLogin(){
     await loadSubscription();
     if(!subscriptionIsActive()){
       applySubscriptionAccess();
-      err.textContent = "Access is currently suspended. Please contact the system administrator.";
+      err.textContent = "Subscription expired. Please contact the administrator to renew access.";
       return;
     }
 
