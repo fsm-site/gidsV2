@@ -3696,10 +3696,24 @@ function canonicalStaffTechnicianName(accountOrValue){
     : (accountOrValue?.technician || "");
   const value = String(raw || "").trim();
   if(!value) return "";
-  if(TECHS.some(tech => tech === value)) return value;
+
+  // First prefer an exact match against the same cloud technician directory
+  // used by Admin Staff Access.
+  const exactTech = TECHS.find(tech => String(tech).trim() === value);
+  if(exactTech) return String(exactTech).trim();
+
+  // Staff account records created by older versions may store values such as
+  // "TechSupport/Bam". Resolve any component that exactly matches the current
+  // Admin technician directory.
   const parts = value.split(/[\/|>]+/).map(part=>part.trim()).filter(Boolean);
-  const exact = parts.find(part => TECHS.some(tech => tech === part));
-  if(exact) return exact;
+  const directoryMatch = parts.find(part => TECHS.some(tech => String(tech).trim() === part));
+  if(directoryMatch) return directoryMatch;
+
+  // If the directory has not arrived yet on the Staff device, still normalize
+  // the legacy composite value to its technician component. This prevents the
+  // login username/prefix from appearing in Attendance while the realtime
+  // techniciansPublic listener catches up.
+  if(parts.length > 1) return parts[parts.length - 1];
   return value;
 }
 
@@ -3970,7 +3984,7 @@ function renderAttendance(){
   }
   const visibleAttendanceTechs = session.isAdmin
     ? attendanceTechs
-    : (staffTech && attendanceTechs.includes(staffTech) ? [staffTech] : []);
+    : (staffTech ? [staffTech] : []);
   select.innerHTML = visibleAttendanceTechs.length
     ? visibleAttendanceTechs.map(tech=>`<option value="${escapeHTML(tech)}">${escapeHTML(tech)}</option>`).join("")
     : `<option value="">${session.isAdmin ? 'No technicians available' : 'Staff technician access not assigned'}</option>`;
