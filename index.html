@@ -485,9 +485,6 @@
   .developer-access-link{ display:none; position:fixed; right:22px; bottom:18px; z-index:18; border:0; background:none; color:rgba(141,160,196,.62); cursor:pointer; font:500 10px/1.3 'Inter',sans-serif; letter-spacing:.2px; padding:4px; }
   body.login-mode .developer-access-link{ display:block; }
   .developer-access-link:hover{ color:var(--blue-light); text-decoration:underline; }
-  .global-actions{ position:fixed; top:18px; right:190px; z-index:30; display:flex; align-items:center; gap:8px; }
-  body.login-mode .global-actions{ display:none; }
-  @media (max-width:600px){ .global-actions{ top:auto; right:12px; bottom:78px; gap:5px; } .global-actions .pill-btn{ padding:7px 9px; font-size:11px; } }
   .remember-choice{ display:flex; align-items:center; gap:8px; margin:2px 0 12px; color:var(--muted); font-size:11.5px; text-align:left; cursor:pointer; }
   .login-submit.is-loading{ opacity:.78; cursor:wait; }
   .login-spinner{ width:15px; height:15px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; display:inline-block; vertical-align:-3px; margin-right:7px; animation:loginSpin .7s linear infinite; }
@@ -814,12 +811,6 @@
   <span id="theme-toggle-label">Light mode</span>
 </button>
 <button class="developer-access-link" type="button" onclick="openDeveloperAccess()">Developer access</button>
-<div class="global-actions" id="global-actions" aria-label="Application actions">
-  <button class="pill-btn ghost" type="button" onclick="hardRefreshApp()" title="Reload the app">Refresh</button>
-  <button class="pill-btn ghost" type="button" onclick="openCalculatorModal()">Calculator</button>
-  <button class="pill-btn danger" id="global-logout" type="button" data-logout-action>Log out</button>
-</div>
-
 <div class="shell login-mode">
   <!-- ============ LEFT RAIL ============ -->
   <div class="rail">
@@ -3339,7 +3330,7 @@ function ensureSharedTopbarActions(key, rightEl){
   if((session.isAdmin || session.staffUnlocked) && !rightEl.querySelector('[data-shared-calculator], [onclick*="openCalculatorModal"]')){
     rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn ghost" data-shared-calculator type="button" onclick="openCalculatorModal()">Calculator</button>`);
   }
-  if(!rightEl.querySelector('[data-shared-logout], [onclick*="logout"]')){
+  if(!rightEl.querySelector('[data-shared-logout], [data-logout-action], [onclick*="logout"]')){
     rightEl.insertAdjacentHTML("beforeend", `<button class="pill-btn danger" data-shared-logout data-logout-action type="button">Log out</button>`);
   }
 }
@@ -3394,8 +3385,8 @@ function switchView(key){
     titleEl.innerHTML = `Hi, <span class="hi">${escapeHTML(currentUserName())}!</span>`;
     subEl.innerHTML = `Dashboard · Updated ${formatSiteDate(getToday())}`;
     rightEl.innerHTML = branchSelectorHTML("ui.branch") +
-      `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
-      `<button class="pill-btn danger" onclick="logout()">Sign out</button>`;
+      `<button class="pill-btn ghost" data-shared-calculator type="button" onclick="openCalculatorModal()">Calculator</button>` +
+      `<button class="pill-btn danger" data-logout-action type="button">Sign out</button>`;
     bindBranchSelector("employee");
   } else if(key==="inventory-public"){
     document.getElementById("view-inventory-public").classList.add("active");
@@ -3451,8 +3442,8 @@ function switchView(key){
       rightEl.innerHTML = branchSelectorHTML("ui.adminBranch") +
         `<div class="badge-role"><span class="dot"></span><span>Admin</span></div>` +
         `<button class="pill-btn ghost" onclick="switchView('security-access')">Security and Access</button>` +
-        `<button class="pill-btn ghost" onclick="openCalculatorModal()">Calculator</button>` +
-        `<button class="pill-btn ghost" onclick="logout()">Log out</button>`;
+        `<button class="pill-btn ghost" data-shared-calculator type="button" onclick="openCalculatorModal()">Calculator</button>` +
+        `<button class="pill-btn ghost" data-logout-action type="button">Log out</button>`;
       bindBranchSelector("admin");
     } else {
       document.getElementById("view-admin-login").classList.add("active");
