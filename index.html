@@ -249,7 +249,7 @@
   .modal-actions .pill-btn{ text-align:center; }
   .modal.job-modal{ max-height:calc(100dvh - 32px); overflow:hidden; display:flex; flex-direction:column; padding-bottom:0; }
   .modal.job-modal .job-modal-scroll{ min-height:0; flex:1 1 auto; overflow-y:auto; overscroll-behavior:contain; padding-bottom:8px; }
-  .modal.job-modal .modal-actions{ flex:0 0 auto; position:relative; bottom:auto; z-index:3; padding:12px 0 14px; margin:0; background:linear-gradient(180deg,rgba(12,27,47,.12),var(--panel) 42%); border-top:1px solid rgba(150,205,245,.08); }
+  .modal.job-modal .modal-actions{ flex:0 0 auto; position:relative; bottom:auto; z-index:3; padding:12px 0 14px; margin:0; background:linear-gradient(180deg,rgba(255,255,255,.96),#eef4f9 42%); border-top:1px solid #c8d9e8; }
 
   .toast{ position:fixed; bottom:22px; left:50%; transform:translateX(-50%) translateY(20px); background:linear-gradient(155deg,var(--blue-light),var(--blue)); color:#fff; padding:11px 18px; border-radius:9px; font-size:13px; font-weight:600; opacity:0; pointer-events:none; transition:all .25s ease; z-index:100; box-shadow:0 10px 30px rgba(0,0,0,.4); }
   .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
@@ -4513,7 +4513,7 @@ function renderStockMovements(){
   if(!body) return;
   const rows=(state.stockMovements||[]).slice(0,25);
   body.innerHTML=rows.length ? rows.map(m=>`<tr>
-    <td>${escapeHTML(m.date)}</td>
+    <td>${escapeHTML(formatSiteDate(m.date))}</td>
     <td>${escapeHTML(m.itemName||itemNameById(m.itemId))}</td>
     <td>${escapeHTML(m.type)}</td>
     <td>${Number(m.qty)>0?"+":""}${m.qty}</td>
@@ -4811,6 +4811,10 @@ function updateJobDateDisplay(value){
   const el = document.getElementById("f-date-display");
   if(el) el.textContent = formatSiteDate(value);
 }
+function updateAppointmentDateDisplay(value){
+  const el = document.getElementById("f-appointment-display");
+  if(el) el.textContent = value ? formatSiteDateTime(value) : "";
+}
 
 function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
   // Dashboard Add Job is shared by Admin and Staff. Infer the active role so
@@ -4845,7 +4849,7 @@ function openTxnModal(isAdmin=!!session.isAdmin, editId=null){
     <div class="field"><label>Name of customer</label><input id="f-customer" placeholder="Walk-in customer" value="${editing&&editing.customerName?escapeHTML(editing.customerName):""}"></div>
     <div class="field"><label>Customer phone</label><input id="f-customer-phone" type="tel" placeholder="09xx…" value="${editing&&editing.customerPhone?escapeHTML(editing.customerPhone):""}"></div>
     <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px;">
-      <div class="field"><label>Appointment date &amp; time</label><input id="f-appointment" type="datetime-local" value="${editing&&editing.appointmentAt?escapeHTML(editing.appointmentAt):""}"></div>
+      <div class="field"><label>Appointment date &amp; time</label><input id="f-appointment" type="datetime-local" value="${editing&&editing.appointmentAt?escapeHTML(editing.appointmentAt):""}" onchange="updateAppointmentDateDisplay(this.value)"><div id="f-appointment-display" style="margin-top:6px;font-size:12px;font-weight:700;color:#2f76bd;">${editing&&editing.appointmentAt?escapeHTML(formatSiteDateTime(editing.appointmentAt)):""}</div></div>
       <div class="field"><label>Job status</label><select id="f-status">${JOB_STATUSES.map(s=>`<option value="${s}" ${editing&&editing.jobStatus===s?"selected":""}>${s}</option>`).join("")}</select></div>
     </div>
     <div class="field"><label>Tech assigned</label><select id="f-tech">${techOptions}</select></div>
