@@ -3469,6 +3469,16 @@ function setLoginLoading(buttonId, loadingText){
     btn.textContent = btn.dataset.originalText || "Unlock";
   }
 }
+function describeFirebaseAuthError(error, label){
+  const code = error?.code || "";
+  if(code === "auth/invalid-email") return "Enter a valid Firebase email address.";
+  if(code === "auth/invalid-credential" || code === "auth/user-not-found" || code === "auth/wrong-password") return `Firebase rejected this ${label} email or password. Verify that the user exists in Firebase Authentication and that the password is correct.`;
+  if(code === "auth/user-disabled") return `This Firebase ${label} account is disabled.`;
+  if(code === "auth/operation-not-allowed") return "Firebase Email/Password sign-in is not enabled for this project.";
+  if(code === "auth/too-many-requests") return "Firebase temporarily blocked sign-in attempts. Wait and try again.";
+  if(code === "auth/network-request-failed") return "Firebase could not connect. Check the network and try again.";
+  return `${label[0].toUpperCase()+label.slice(1)} login failed (${code || "unknown-auth-error"}).`;
+}
 
 async function attemptLogin(){
   const email = document.getElementById("login-user").value.trim();
@@ -3595,26 +3605,7 @@ async function attemptLogin(){
   }catch(error){
     console.error("Firebase admin login error:", error);
 
-    let message = "Login failed. Please check your Firebase account.";
-    if(error && error.code === "auth/invalid-credential"){
-      message = "Email not recognized";
-    }else if(error && error.code === "auth/user-not-found"){
-      message = "No Firebase user exists with this email address.";
-    }else if(error && error.code === "auth/wrong-password"){
-      message = "The Firebase password is incorrect.";
-    }else if(error && error.code === "auth/invalid-email"){
-      message = "Please enter a valid email address.";
-    }else if(error && error.code === "auth/too-many-requests"){
-      message = "Too many login attempts. Please wait and try again.";
-    }else if(error && error.code === "auth/network-request-failed"){
-      message = "Network error. Check your internet connection.";
-    }else if(error && error.code === "auth/user-disabled"){
-      message = "This Firebase admin account has been disabled.";
-    }else if(error && error.code === "auth/operation-not-allowed"){
-      message = "Firebase Email/Password sign-in is not enabled.";
-    }
-
-    err.textContent = message;
+    err.textContent = describeFirebaseAuthError(error, "admin");
   }finally{
     setLoginLoading("admin-login-btn", null);
   }
@@ -3645,7 +3636,7 @@ async function attemptDeveloperLogin(){
     showToast("Developer security portal");
   }catch(loginError){
     console.error("Firebase developer login error:", loginError);
-    error.textContent = loginError?.code === "auth/invalid-credential" ? "Developer account not recognized." : "Developer login failed. Check the Firebase account and try again.";
+    error.textContent = describeFirebaseAuthError(loginError, "developer");
   }finally{
     setLoginLoading("developer-login-btn", null);
   }
@@ -3728,17 +3719,7 @@ async function attemptStaffLogin(){
     showToast("Welcome");
   }catch(error){
     console.error("Firebase staff login error:", error);
-    let message = "Incorrect email or password.";
-    if(error && error.code === "auth/operation-not-allowed"){
-      message = "Firebase Email/Password sign-in is not enabled.";
-    }else if(error && error.code === "auth/too-many-requests"){
-      message = "Too many login attempts. Please wait and try again.";
-    }else if(error && error.code === "auth/network-request-failed"){
-      message = "Network error. Check your internet connection.";
-    }else if(error && error.code === "auth/user-disabled"){
-      message = "This staff account has been disabled.";
-    }
-    err.textContent = message;
+    err.textContent = describeFirebaseAuthError(error, "staff");
   }finally{
     setLoginLoading("staff-login-btn", null);
   }
