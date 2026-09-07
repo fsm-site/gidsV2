@@ -1646,20 +1646,38 @@ function restoreBrowserSession(){
     return saved.view;
   }catch(e){ return null; }
 }
-async function getFirebaseRole(user){
-  if(!user || user.isAnonymous) return null;
+async function getFirebaseRoleDetails(user){
+  if(!user || user.isAnonymous){
+    return {role:null, exists:false, errorCode:"no-user", error:null};
+  }
   try{
     const roleSnap = await withTimeout(
       db.collection("userRoles").doc(user.uid).get(),
       8000
     );
-    if(!roleSnap.exists) return null;
-    const role = roleSnap.data()?.role;
-    return role === "admin" || role === "staff" ? role : null;
+    if(!roleSnap.exists){
+      return {role:null, exists:false, errorCode:"missing-role", error:null};
+    }
+    const rawRole = String(roleSnap.data()?.role || "").trim().toLowerCase();
+    const role = rawRole === "admin" || rawRole === "staff" ? rawRole : null;
+    return {role, exists:true, errorCode:role ? null : "invalid-role", error:null};
   }catch(e){
     console.error("Could not read Firebase role:", e);
-    return null;
+    return {role:null, exists:false, errorCode:e?.code || "role-read-failed", error:e};
   }
+}
+async function getFirebaseRole(user){
+  const details = await getFirebaseRoleDetails(user);
+  return details.role;
+}
+function describeFirebaseRoleFailure(details, roleLabel){
+  if(!details) return `Could not verify the ${roleLabel} role.`;
+  if(details.errorCode === "missing-role") return `This Firebase account has no userRoles record for its UID.`;
+  if(details.errorCode === "invalid-role") return `The userRoles record exists, but its role is not admin or staff.`;
+  if(details.errorCode === "permission-denied" || details.errorCode === "permission-denied") return `Firebase signed in, but Firestore denied access to this account's userRoles record.`;
+  if(details.errorCode === "deadline-exceeded") return `Firebase signed in, but the userRoles lookup timed out.`;
+  if(details.error) return `Firebase signed in, but the userRoles lookup failed (${details.errorCode || "unknown error"}).`;
+  return `This Firebase account is not assigned a ${roleLabel} role.`;
 }
 
 async function restoreAuthenticatedSession(){
@@ -3336,17 +3354,18 @@ async function attemptLogin(){
     // Resolve the Firebase role BEFORE loading appMeta. appMeta is protected by
     // role/subscription rules, so trying to read it before the role is known
     // caused valid Admin/Staff users to be reported as having no role.
-    const role = await getFirebaseRole(user);
+    const roleDetails = await getFirebaseRoleDetails(user);
+    const role = roleDetails.role;
 
     if(role === "staff"){
       await firebase.auth().signOut();
-      err.textContent = "This email is assigned as staff. Please use Staff Login.";
+      err.textContent = "This email is assigned as Staff. Please use Staff Login.";
       return;
     }
 
     if(role !== "admin"){
       await firebase.auth().signOut();
-      err.textContent = "This email is not assigned an Admin role.";
+      err.textContent = describeFirebaseRoleFailure(roleDetails, "Admin");
       return;
     }
 
@@ -3364,7 +3383,17 @@ async function attemptLogin(){
     // greeting shows the admin's display name, not the Firebase email.
     // Read the authoritative Admin Access record after the role is established.
     const adminEmail = (user.email || "").trim().toLowerCase();
-    const adminSnap = await withTimeout(db.collection("adminAccounts").where("email","==",adminEmail).get(), 10000);
+    let adminSnap;
+    try{
+      adminSnap = await withTimeout(db.collection("adminAccounts").where("email","==",adminEmail).get(), 10000);
+    }catch(accessError){
+      console.error("Could not read Admin Access during login:", accessError);
+      await firebase.auth().signOut();
+      err.textContent = accessError?.code === "permission-denied"
+        ? "Firebase role verified, but Firestore denied access to Admin Access. Check the deployed Firestore rules."
+        : `Firebase role verified, but Admin Access could not be read (${accessError?.code || "unknown error"}).`;
+      return;
+    }
     const adminAccount = adminSnap.docs.length ? {id:adminSnap.docs[0].id, ...adminSnap.docs[0].data()} : null;
     if(!adminAccount || String(adminAccount.status || "active").toLowerCase() === "revoked"){
       await firebase.auth().signOut();
@@ -3455,12 +3484,13 @@ async function attemptStaffLogin(){
     const user = userCredential.user;
 
     // Resolve role first. Staff is intentionally not allowed to read appMeta.
-    const role = await getFirebaseRole(user);
+    const roleDetails = await getFirebaseRoleDetails(user);
+    const role = roleDetails.role;
     if(role !== "staff"){
       await firebase.auth().signOut();
       err.textContent = role === "admin"
-        ? "This email is assigned as admin. Please use Admin Login."
-        : "This email is not assigned a Staff role.";
+        ? "This email is assigned as Admin. Please use Admin Login."
+        : describeFirebaseRoleFailure(roleDetails, "Staff");
       return;
     }
 
@@ -3919,6 +3949,11 @@ async function revokeAdminAccount(username){
     showToast("You cannot revoke the admin account currently in use");
     return;
   }
+  const activeAdminCount = (state.adminAccounts || []).filter(a=>String(a.status || "active").toLowerCase() === "active").length;
+  if(activeAdminCount <= 1){
+    showToast("You cannot revoke the last active Admin. Keep a recovery administrator available.");
+    return;
+  }
   try{
     const ref = db.collection("adminAccounts").doc(account.id || stableAdminDocId(account));
     await withTimeout(ref.set({status:"revoked", branchId:account.branchId || currentBranchId()}, {merge:true}), 10000);
@@ -4049,6 +4084,11 @@ async function deleteAdminAccount(username){
   const account = state.adminAccounts.find(item=>item.username===username);
   if(!account) return;
   if(session.adminUsername===username){ showToast("You cannot delete the admin account currently in use"); return; }
+  const activeAdminCount = (state.adminAccounts || []).filter(a=>String(a.status || "active").toLowerCase() === "active").length;
+  if(String(account.status || "active").toLowerCase() === "active" && activeAdminCount <= 1){
+    showToast("You cannot delete the last active Admin. Keep a recovery administrator available.");
+    return;
+  }
   if(!confirm(`Delete Admin Access for ${account.email || username}? This removes the GIDS access record.`)) return;
   try{
     await withTimeout(db.collection("adminAccounts").doc(account.id || stableAdminDocId(account)).delete(), 10000);
