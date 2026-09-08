@@ -3231,7 +3231,7 @@ document.getElementById("install-app").addEventListener("click", async ()=>{
   document.getElementById("install-app").classList.remove("visible");
 });
 if("serviceWorker" in navigator){
-  window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js?v=20"));
+  window.addEventListener("load", ()=>navigator.serviceWorker.register("sw.js?v=21"));
 }
 
 function goToInventoryFromOverview(){
