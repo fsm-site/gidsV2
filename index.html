@@ -1217,7 +1217,6 @@
               <div style="display:flex; gap:10px; align-items:center;">
                 <input id="job-search" type="text" placeholder="Search jobs…" value="" oninput="onJobSearch(this.value)"
                   style="border:1px solid var(--line-strong); border-radius:8px; padding:8px 12px; font-size:12.5px; width:180px;">
-                <button class="pill-btn ghost" onclick="openAddTechnicianModal()">+ Add technician</button>
                 <button class="pill-btn danger" onclick="openRemoveTechnicianModal()">Technician access</button>
                 <button class="pill-btn primary" onclick="openTxnModal(true)">+ Add job</button>
               </div>
@@ -1405,7 +1404,10 @@
           <div class="panel" style="margin:16px;">
             <div class="panel-head">
               <div><h3>Staff access</h3><div class="desc">Assign or revoke technician access.</div></div>
-              <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;justify-content:flex-end;">
+                <button class="pill-btn primary" onclick="openStaffAccountModal()">+ Assign access</button>
+                <button class="pill-btn ghost" id="developer-add-technician" style="display:none;" onclick="openAddTechnicianModal()">+ Add technician</button>
+              </div>
             </div>
             <table><thead><tr><th>Technician</th><th>Firebase email</th><th>Status</th><th style="text-align:right">Actions</th></tr></thead><tbody id="staff-access-body"></tbody></table>
           </div>
@@ -1420,7 +1422,7 @@
             <div class="panel-head">
               <div><h3>Role registry</h3><div class="desc">Developer-only control of Firebase role assignments.</div></div>
             </div>
-            <table><thead><tr><th>Firebase UID</th><th>Email</th><th>Role</th><th style="text-align:right">Action</th></tr></thead><tbody id="developer-roles-body"></tbody></table>
+              <table><thead><tr><th>Firebase UID</th><th>Email</th><th>Role</th><th style="text-align:right">Action</th></tr></thead><tbody id="developer-roles-body"></tbody></table>
           </div>
         </div>
       </div>
@@ -2443,7 +2445,7 @@ async function loadAppMeta(){
 
 async function syncTechnicianDirectory(){
   const user = firebase.auth().currentUser;
-  if(!user || user.isAnonymous || !session.isAdmin) return;
+  if(!user || user.isAnonymous || (!session.isAdmin && !session.isDeveloper)) return;
   if(!technicianDirectoryLoaded){
     await loadTechnicianDirectory();
     if(!technicianDirectoryLoaded) return;
@@ -2461,7 +2463,7 @@ async function syncTechnicianDirectory(){
 
 async function loadTechnicianDirectory(){
   const user = firebase.auth().currentUser;
-  if(!user || user.isAnonymous || (!session.isAdmin && !session.staffUnlocked)) return false;
+  if(!user || user.isAnonymous || (!session.isAdmin && !session.isDeveloper && !session.staffUnlocked)) return false;
   const branchId = currentBranchId();
   try{
     const snap = await withTimeout(db.collection("techniciansPublic").doc(branchId).get(), 10000);
@@ -3527,6 +3529,7 @@ async function loadSecurityCollections(){
   if(session.isDeveloper){
     const rolesSnap = await db.collection("userRoles").get();
     securityRoles = rolesSnap.docs.map(doc=>({id:doc.id,...doc.data()}));
+    await loadTechnicianDirectory();
   }
 }
 function setLoginLoading(buttonId, loadingText){
@@ -3889,6 +3892,7 @@ async function sendAdminPasswordReset(){
   }
 }
 function openAddTechnicianModal(){
+  if(!session.isDeveloper) return;
   openOverlay(`
     <h3>Add technician</h3>
     <div class="sub">Add a technician to job forms and technician reports.</div>
@@ -3901,7 +3905,8 @@ function openAddTechnicianModal(){
   `);
   document.getElementById("new-tech-name").focus();
 }
-function saveTechnician(){
+async function saveTechnician(){
+  if(!session.isDeveloper) return;
   const input = document.getElementById("new-tech-name");
   const error = document.getElementById("tech-error");
   const name = input.value.trim();
@@ -3912,10 +3917,19 @@ function saveTechnician(){
   }
   TECHS.push(name);
   state.technicians = [...TECHS];
-  saveState();
-  closeOverlay();
-  renderAll();
-  showToast(`${name} added as a technician`);
+  try{
+    await syncTechnicianDirectory();
+    writeLocal();
+    closeOverlay();
+    renderAll();
+    showToast(`${name} added as a technician`);
+  }catch(error){
+    TECHS.splice(TECHS.indexOf(name),1);
+    state.technicians = [...TECHS];
+    console.error("Could not save technician directory:", error);
+    const detail = error?.code || error?.message || "unknown error";
+    document.getElementById("tech-error").textContent = `Could not save technician (${detail}).`;
+  }
 }
 function openRemoveTechnicianModal(){
   if(!session.isAdmin) return;
@@ -4075,8 +4089,27 @@ function renderStaffAccess(){
   accounts.forEach(account=>{ if(account?.technician && !techNames.includes(account.technician) && String(account.status || "active").toLowerCase() === "revoked") techNames.push(account.technician); });
   body.innerHTML = techNames.length ? techNames.map(tech=>{
     const account = accounts.find(item=>item.technician===tech);
-    return `<tr><td>${escapeHTML(tech)}</td><td>${account && account.email ? escapeHTML(account.email) : "—"}</td><td><span class="tag ${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "low" : "good") : "low"}">${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "Revoked" : "Active") : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` ${accessActionOptions(account,"staff")}` : ""}</td></tr>`;
+    return `<tr><td>${escapeHTML(tech)}</td><td>${account && account.email ? escapeHTML(account.email) : "—"}</td><td><span class="tag ${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "low" : "good") : "low"}">${account ? (String(account.status || "active").toLowerCase() === "revoked" ? "Revoked" : "Active") : "Not assigned"}</span></td><td style="text-align:right"><button class="pill-btn small ghost" onclick="openTechnicianNameModal('${escapeHTML(tech)}')">Edit name</button> <button class="pill-btn small ghost" onclick="openStaffAccountModal('${account ? account.id : ""}', '${escapeHTML(tech)}')">${account ? "Edit access" : "Assign access"}</button>${account ? ` ${accessActionOptions(account,"staff")}` : ""}${session.isDeveloper ? ` <button class="pill-btn small danger" onclick="removeDeveloperTechnician('${escapeHTML(tech)}')">Remove</button>` : ""}</td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No technicians available.</td></tr>`;
+}
+
+async function removeDeveloperTechnician(name){
+  if(!session.isDeveloper || !name || !confirm(`Remove ${name} from the technician directory?`)) return;
+  const previous = [...TECHS];
+  TECHS.splice(0, TECHS.length, ...TECHS.filter(tech=>tech!==name));
+  state.technicians = [...TECHS];
+  try{
+    await syncTechnicianDirectory();
+    writeLocal();
+    renderAll();
+    showToast(`${name} removed from the technician directory`);
+  }catch(error){
+    TECHS.splice(0, TECHS.length, ...previous);
+    state.technicians = [...TECHS];
+    renderAll();
+    console.error("Could not remove technician:", error);
+    showToast("Could not update the technician directory");
+  }
 }
 
 function renderAdminAccess(){
@@ -4096,10 +4129,12 @@ function renderDeveloperRoles(){
   const body = document.getElementById("developer-roles-body");
   if(!panel || !body) return;
   panel.style.display = session.isDeveloper ? "block" : "none";
+  const addTechnicianButton = document.getElementById("developer-add-technician");
+  if(addTechnicianButton) addTechnicianButton.style.display = session.isDeveloper ? "inline-flex" : "none";
   if(!session.isDeveloper) return;
   body.innerHTML = securityRoles.length ? securityRoles.map(role=>{
     const current = String(role.role || "").toLowerCase();
-    return `<tr><td><code>${escapeHTML(role.id)}</code></td><td>${escapeHTML(role.email || "—")}</td><td><select id="security-role-${escapeHTML(role.id)}"><option value="admin" ${current==="admin"?"selected":""}>Admin</option><option value="staff" ${current==="staff"?"selected":""}>Staff</option><option value="developer" ${current==="developer"?"selected":""}>Developer</option></select></td><td style="text-align:right"><button class="pill-btn small primary" onclick="saveDeveloperRole('${escapeHTML(role.id)}')">Save role</button></td></tr>`;
+    return `<tr><td><code>${escapeHTML(role.id)}</code></td><td>${escapeHTML(role.email || "—")}</td><td><select id="security-role-${escapeHTML(role.id)}"><option value="admin" ${current==="admin"?"selected":""}>Admin</option><option value="staff" ${current==="staff"?"selected":""}>Staff</option><option value="developer" ${current==="developer"?"selected":""}>Developer</option></select></td><td style="text-align:right"><button class="pill-btn small primary" onclick="saveDeveloperRole('${escapeHTML(role.id)}')">Save role</button> <button class="pill-btn small danger" onclick="deleteDeveloperRole('${escapeHTML(role.id)}')">Delete</button></td></tr>`;
   }).join("") : `<tr class="empty-row"><td colspan="4">No role records available.</td></tr>`;
 }
 
@@ -4115,6 +4150,19 @@ async function saveDeveloperRole(uid){
   }catch(error){
     console.error("Could not update Firebase role:", error);
     showToast("Could not update Firebase role");
+  }
+}
+
+async function deleteDeveloperRole(uid){
+  if(!session.isDeveloper || !uid || !confirm("Delete this Firebase role record?")) return;
+  try{
+    await withTimeout(db.collection("userRoles").doc(uid).delete(),10000);
+    securityRoles = securityRoles.filter(record=>record.id!==uid);
+    renderDeveloperRoles();
+    showToast("Firebase role record deleted");
+  }catch(error){
+    console.error("Could not delete Firebase role:", error);
+    showToast("Could not delete Firebase role");
   }
 }
 
