@@ -2544,8 +2544,11 @@ async function syncOperationalCollections(){
     // migration. We delete the separated copies only; the legacy app-data
     // tombstones remain the audit/safety record until the migration is final.
     const deleted = state.deletedRecords || {};
+    const queuedDeletes = {};
     const deleteMirrors = (legacyKey, collectionNames) => {
-      (deleted[legacyKey] || []).filter(Boolean).forEach(id => {
+      const ids = (deleted[legacyKey] || []).filter(Boolean);
+      if(ids.length) queuedDeletes[legacyKey] = ids;
+      ids.forEach(id => {
         collectionNames.forEach(name => batch.delete(db.collection(name).doc(id)));
       });
     };
@@ -2638,6 +2641,20 @@ async function syncOperationalCollections(){
     }
 
     await withTimeout(batch.commit(), 10000);
+
+    // Once a batch of deletion tombstones has committed, those Firestore
+    // documents are gone for good. Re-submitting the same IDs on every
+    // future save means batch.delete() targets a document that no longer
+    // exists; since these rules read resource.data to check permissions on
+    // delete, a missing document makes that one delete evaluate to "denied",
+    // which fails the ENTIRE atomic batch -- silently blocking unrelated
+    // writes (like a brand-new inventory item) bundled into the same save.
+    // Pruning confirmed-synced tombstones here stops that from recurring.
+    Object.keys(queuedDeletes).forEach(legacyKey => {
+      const synced = new Set(queuedDeletes[legacyKey]);
+      state.deletedRecords[legacyKey] = (state.deletedRecords[legacyKey] || []).filter(id => !synced.has(id));
+    });
+    writeLocal();
   }catch(e){
     console.error("Role-aware operational collection sync failed:", e);
   }
@@ -2707,6 +2724,15 @@ async function loadAdminCollections(){
       amountPaid: Number.isFinite(Number(t.amountPaid)) ? Number(t.amountPaid) : 0,
       balance: Number.isFinite(Number(t.balance)) ? Number(t.balance) : 0
     }));
+
+    // Without this, a record that's queued for deletion in deletedRecords
+    // but hasn't actually been removed from Firestore yet (e.g. a delete
+    // that previously failed to sync) comes right back into state.inventory
+    // on every fresh load. The next save would then try to both re-mirror
+    // (set) AND delete that same document in one Firestore batch, which
+    // Firestore's batch API rejects outright -- silently blocking that
+    // entire save, including any unrelated new items in it.
+    applyDeletionTombstones(state);
     writeLocal();
     return true;
   }catch(e){
